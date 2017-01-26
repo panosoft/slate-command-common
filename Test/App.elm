@@ -7,8 +7,9 @@ import Process
 import Task exposing (Task)
 import CommandHelper
 import ParentChildUpdate exposing (..)
-import StringUtils exposing ((+-+))
+import StringUtils exposing ((+-+), (+++))
 import Utils.Ops exposing (..)
+import Json.Encode as JE
 
 
 port exitApp : Float -> Cmd msg
@@ -33,6 +34,16 @@ pgReconnectDelayInterval =
     10 * second
 
 
+entityId1 : String
+entityId1 =
+    "7859eea1-d1ee-46be-865d-b04e0a12df4c"
+
+
+entityId2 : String
+entityId2 =
+    "31cd9070-9073-415e-889f-dc0278dc7283"
+
+
 delayUpdateMsg : Msg -> Time -> Cmd Msg
 delayUpdateMsg msg delay =
     Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
@@ -42,9 +53,13 @@ type Msg
     = Nop
     | CommandHelperError String
     | CommandHelperLog String
-    | InitCommand
-    | InitCommandComplete CommandHelper.CommandId
-    | LockCommandComplete CommandHelper.CommandId
+    | InitCommandStart
+    | InitCommand CommandHelper.CommandId
+    | InitCommandError ( CommandHelper.CommandId, String )
+    | LockEntities CommandHelper.CommandId
+    | LockEntitiesError ( CommandHelper.CommandId, String )
+    | WriteEvents ( CommandHelper.CommandId, Int )
+    | WriteEventsError ( CommandHelper.CommandId, String )
     | CommandHelperModule CommandHelper.Msg
 
 
@@ -54,8 +69,12 @@ commandHelperConfig =
     , pgReconnectDelayInterval = pgReconnectDelayInterval
     , errorTagger = CommandHelperError
     , logTagger = CommandHelperLog
-    , initCommandTagger = InitCommandComplete
-    , lockCommandTagger = LockCommandComplete
+    , initCommandTagger = InitCommand
+    , initCommandErrorTagger = InitCommandError
+    , lockEntitiesTagger = LockEntities
+    , lockEntitiesErrorTagger = LockEntitiesError
+    , writeEventsTagger = WriteEvents
+    , writeEventsErrorTagger = WriteEventsError
     }
 
 
@@ -82,7 +101,7 @@ init =
         ( model, cmds ) =
             initModel
     in
-        model ! (List.append cmds [ delayUpdateMsg InitCommand (1 * second) ])
+        model ! (List.append cmds [ delayUpdateMsg InitCommandStart (1 * second) ])
 
 
 main : Program Never
@@ -120,10 +139,10 @@ update msg model =
                 in
                     model ! []
 
-            InitCommand ->
+            InitCommandStart ->
                 let
                     l =
-                        Debug.log "InitCommand" ""
+                        Debug.log "InitCommandStart" ""
 
                     ( commandHelperModel, cmd ) =
                         CommandHelper.initCommand commandHelperConfig model.commandHelperModel
@@ -137,16 +156,13 @@ update msg model =
                 in
                     { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
 
-            InitCommandComplete commandId ->
+            InitCommand commandId ->
                 let
                     l =
-                        Debug.log "InitCommandComplete" ("Command Id:  " +-+ commandId)
+                        Debug.log "InitCommand" ("Command Id:  " +-+ commandId)
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.lockEntities commandId
-                            [ "7859eea1-d1ee-46be-865d-b04e0a12df4c", "31cd9070-9073-415e-889f-dc0278dc7283" ]
-                            commandHelperConfig
-                            model.commandHelperModel
+                        CommandHelper.lockEntities commandHelperConfig model.commandHelperModel commandId [ entityId1, entityId2 ]
                             ??= (\err ->
                                     let
                                         l =
@@ -157,10 +173,53 @@ update msg model =
                 in
                     { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
 
-            LockCommandComplete commandId ->
+            InitCommandError ( commandId, error ) ->
                 let
                     l =
-                        Debug.log "LockCommandComplete" ("Command Id:  " +-+ commandId)
+                        Debug.log "InitCommandError" error
+                in
+                    model ! []
+
+            LockEntities commandId ->
+                let
+                    l =
+                        Debug.log "LockEntities" ("Command Id:  " +-+ commandId)
+
+                    events =
+                        [ encodeEvent entityId1 "User Created" "Create User" "64194fcb-bf87-40c2-bee7-3a86f0110840"
+                        , encodeEvent entityId2 "User Created" "Create User" "d2a1cf24-dc3a-45d6-8310-1fb6eb184d1b"
+                        ]
+
+                    ( commandHelperModel, cmd ) =
+                        CommandHelper.writeEvents commandHelperConfig model.commandHelperModel commandId events
+                            ??= (\err ->
+                                    let
+                                        l =
+                                            Debug.log "writeEvents Command Error:" err
+                                    in
+                                        ( model.commandHelperModel, Cmd.none )
+                                )
+                in
+                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
+
+            LockEntitiesError ( commandId, error ) ->
+                let
+                    l =
+                        Debug.log "LockEntitiesError" error
+                in
+                    model ! []
+
+            WriteEvents ( commandId, eventRows ) ->
+                let
+                    l =
+                        Debug.log "WriteEvents" ("Command Id:" +-+ commandId +-+ "Events Inserted:" +-+ eventRows)
+                in
+                    model ! []
+
+            WriteEventsError ( commandId, error ) ->
+                let
+                    l =
+                        Debug.log "WriteEventsError" ("Command Id:" +-+ commandId +-+ "Error:" +-+ error)
                 in
                     model ! []
 
@@ -171,3 +230,13 @@ update msg model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.none
+
+
+encodeEvent : String -> String -> String -> String -> String
+encodeEvent name entityId command initiatorId =
+    JE.encode 0 <|
+        JE.object
+            [ ( "name", JE.string name )
+            , ( "data", JE.object [ ( "entityId", JE.string entityId ) ] )
+            , ( "metadata", JE.object [ ( "command", JE.string command ), ( "initiatorId", JE.string initiatorId ) ] )
+            ]

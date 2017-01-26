@@ -18,6 +18,7 @@ import FNV exposing (..)
 import Postgres exposing (..)
 import Utils.Ops exposing (..)
 import Utils.Json exposing ((<||))
+import StringUtils exposing (..)
 
 
 beginTrans : String
@@ -28,6 +29,10 @@ beginTrans =
 tryAdvisoryLock : String
 tryAdvisoryLock =
     "pg_try_advisory_xact_lock"
+
+
+type alias CommandId =
+    Int
 
 
 type alias Guid =
@@ -67,19 +72,29 @@ type alias LogTagger msg =
     String -> msg
 
 
+type alias LockEntitiesTagger msg =
+    CommandId -> msg
+
+
+type alias LockEntitiesErrorTagger msg =
+    ( CommandId, String ) -> msg
+
+
 type alias Config msg =
     { errorTagger : ErrorTagger msg
     , logTagger : LogTagger msg
+    , lockEntitiesTagger : LockEntitiesTagger msg
+    , lockEntitiesErrorTagger : LockEntitiesErrorTagger msg
     }
 
 
 type Msg
     = Nop
-    | BeginCommandSuccess ( ConnectionId, List String )
-    | BeginCommandFailure ( ConnectionId, String )
-    | LockCommandSuccess ( ConnectionId, List String )
-    | LockCommandFailure ( ConnectionId, String )
-    | RollbackComplete ( ConnectionId, List String )
+    | BeginCommand CommandId ( ConnectionId, List String )
+    | BeginCommandError CommandId ( ConnectionId, String )
+    | LockEntities CommandId ( ConnectionId, List String )
+    | LockEntitiesError CommandId ( ConnectionId, String )
+    | RollbackComplete CommandId ( ConnectionId, List String )
 
 
 type alias Model =
@@ -105,51 +120,55 @@ update config msg model =
             Nop ->
                 ( model ! [], [] )
 
-            BeginCommandSuccess ( connectionId, results ) ->
+            BeginCommand commandId ( connectionId, results ) ->
                 let
                     l =
-                        Debug.log "BeginCommandSuccess" results
+                        ( Debug.log "Locker BeginCommand" ("CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL Response:" +-+ results)
+                        , Debug.log "Locker Model" (toString model)
+                        )
                 in
-                    processNextLock model connectionId
+                    processNextLock config model commandId connectionId
 
-            BeginCommandFailure ( connectionId, error ) ->
+            BeginCommandError commandId ( connectionId, error ) ->
                 let
                     l =
-                        Debug.log "BeginCommandFailure" error
+                        ( Debug.log "Locker BeginCommandError" ("CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error)
+                        , Debug.log "Locker Model" (toString model)
+                        )
                 in
                     ( model ! [], [] )
 
-            LockCommandSuccess ( connectionId, results ) ->
+            LockEntities commandId ( connectionId, results ) ->
                 let
                     l =
-                        Debug.log "LockCommandSuccess" results
+                        ( Debug.log "Locker LockEntities" ("CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL Response:" +-+ results)
+                        , Debug.log "Locker Model" (toString model)
+                        )
                 in
                     didLock results
-                        ? ( processNextLock model connectionId
+                        ? ( processNextLock config model commandId connectionId
                             -- TODO rollback and retry from the beginning
                           , ( model ! [], [] )
                           )
 
-            -- l =
-            --     ( Debug.log "Lock Statement" lockStatement, Debug.log "New Model" (toString newModel), Debug.log "Decoded results" (toString lockResult) )
-            -- ll =
-            --     ( Debug.log "LockCommandSuccess" results, Debug.log "Current model" (toString model) )
-            LockCommandFailure ( connectionId, error ) ->
+            LockEntitiesError commandId ( connectionId, error ) ->
                 let
                     l =
-                        Debug.log "LockCommandFailure" error
+                        ( Debug.log "Locker LockEntitiesError" ("CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error)
+                        , Debug.log "Locker Model" (toString model)
+                        )
                 in
                     ( model ! [], [] )
 
-            RollbackComplete ( connectionId, results ) ->
+            RollbackComplete commandId ( connectionId, results ) ->
                 ( model ! [], [] )
 
 
 {-|
     API
 -}
-lock : Model -> ConnectionId -> List Guid -> ( Model, Cmd Msg )
-lock model connectionId guids =
+lock : Model -> CommandId -> ConnectionId -> List Guid -> ( Model, Cmd Msg )
+lock model commandId connectionId guids =
     let
         locks =
             createLocks guids
@@ -158,7 +177,7 @@ lock model connectionId guids =
             Dict.insert connectionId (LockState guids locks 0) model.lockRequests
     in
         ( { model | lockRequests = lockRequests }
-        , Postgres.query BeginCommandFailure BeginCommandSuccess connectionId beginTrans 1000
+        , Postgres.query (BeginCommandError commandId) (BeginCommand commandId) connectionId beginTrans 1
         )
 
 
@@ -170,31 +189,31 @@ createLocks guids =
     List.map (\guid -> FNV.hashString guid) guids
 
 
-processNextLock : Model -> ConnectionId -> ( ( Model, Cmd Msg ), List msg )
-processNextLock model connectionId =
+processNextLock : Config msg -> Model -> CommandId -> ConnectionId -> ( ( Model, Cmd Msg ), List msg )
+processNextLock config model commandId connectionId =
     Dict.get connectionId model.lockRequests
         |?> (\lockState ->
                 List.head lockState.locks
                     |?> (\lock ->
                             ( { model | lockRequests = Dict.insert connectionId { lockState | locks = List.drop 1 lockState.locks } model.lockRequests }
-                                ! [ lockCmd connectionId lock ]
+                                ! [ lockCmd commandId connectionId lock ]
                             , []
                             )
                         )
                     -- TODO
                     ?=
-                        ( model ! [], [] )
+                        ( { model | lockRequests = Dict.remove connectionId model.lockRequests } ! [], [ config.lockEntitiesTagger commandId ] )
             )
         ?!= (\_ -> Debug.crash "BUG -- Missing connectionId")
 
 
-lockCmd : ConnectionId -> Int -> Cmd Msg
-lockCmd connectionId lock =
+lockCmd : CommandId -> ConnectionId -> Int -> Cmd Msg
+lockCmd commandId connectionId lock =
     let
         createLockStatement lock =
             "SELECT " ++ tryAdvisoryLock ++ "(" ++ (toString lock) ++ ");"
     in
-        Postgres.query LockCommandFailure LockCommandSuccess connectionId (createLockStatement lock) 2
+        Postgres.query (LockEntitiesError commandId) (LockEntities commandId) connectionId (createLockStatement lock) 2
 
 
 didLock : List String -> Bool
