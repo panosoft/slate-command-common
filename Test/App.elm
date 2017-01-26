@@ -26,12 +26,9 @@ pgConnectionInfo =
     , user = "parallels"
     , password = "parallelspw"
     , connectTimeout = 5000
+    , retries = 3
+    , reconnectDelayInterval = 7 * second
     }
-
-
-pgReconnectDelayInterval : Time
-pgReconnectDelayInterval =
-    10 * second
 
 
 entityId1 : String
@@ -76,7 +73,6 @@ type Msg
 commandHelperConfig : CommandHelper.Config Msg
 commandHelperConfig =
     { pgConnectionInfo = pgConnectionInfo
-    , pgReconnectDelayInterval = pgReconnectDelayInterval
     , errorTagger = CommandHelperError
     , logTagger = CommandHelperLog
     , initCommandTagger = InitCommand
@@ -195,7 +191,7 @@ update msg model =
                     l =
                         Debug.log "InitCommandError" error
                 in
-                    model ! []
+                    ( model, delayCmd (exitApp 1) (1 * second) )
 
             LockEntities commandId ->
                 let
@@ -223,8 +219,18 @@ update msg model =
                 let
                     l =
                         Debug.log "LockEntitiesError" error
+
+                    ( commandHelperModel, cmd ) =
+                        CommandHelper.rollback model.commandHelperModel commandId
+                            ??= (\err ->
+                                    let
+                                        l =
+                                            Debug.log "rollback Command Error:" err
+                                    in
+                                        ( model.commandHelperModel, Cmd.none )
+                                )
                 in
-                    model ! []
+                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
 
             WriteEvents ( commandId, eventRows ) ->
                 let
@@ -279,7 +285,7 @@ update msg model =
                     l =
                         Debug.log "Rollback" ("Command Id:  " +-+ commandId)
                 in
-                    ( model, delayCmd (exitApp 0) (1 * second) )
+                    ( model, delayCmd (exitApp 1) (1 * second) )
 
             RollbackError ( commandId, error ) ->
                 let

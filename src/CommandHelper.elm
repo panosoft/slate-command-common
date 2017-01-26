@@ -17,6 +17,8 @@ module CommandHelper
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
 import Time exposing (Time, second)
+import Process
+import Task exposing (Task)
 import String exposing (join)
 import Postgres exposing (..)
 import ParentChildUpdate exposing (..)
@@ -43,10 +45,25 @@ type alias InsertEventsResponse =
     }
 
 
+lockRetries : Int
+lockRetries =
+    3
+
+
 insertEventsResponseDecoder : JD.Decoder InsertEventsResponse
 insertEventsResponseDecoder =
     JD.succeed InsertEventsResponse
         <|| ("insert_events" := int)
+
+
+delayUpdateMsg : Msg -> Time -> Cmd Msg
+delayUpdateMsg msg delay =
+    Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
+
+
+delayCmd : Cmd Msg -> Time -> Cmd Msg
+delayCmd cmd =
+    delayUpdateMsg <| DoCmd cmd
 
 
 {-|
@@ -59,6 +76,8 @@ type alias PGConnectionInfo =
     , user : String
     , password : String
     , connectTimeout : Int
+    , retries : Int
+    , reconnectDelayInterval : Time
     }
 
 
@@ -115,7 +134,6 @@ type alias RollbackErrorTagger msg =
 
 type alias Config msg =
     { pgConnectionInfo : PGConnectionInfo
-    , pgReconnectDelayInterval : Time
     , errorTagger : ErrorTagger msg
     , logTagger : LogTagger msg
     , initCommandTagger : InitCommandTagger msg
@@ -145,8 +163,9 @@ lockerConfig =
 -}
 type Msg
     = Nop
+    | DoCmd (Cmd Msg)
     | PGConnect CommandId ConnectionId
-    | PGConnectError CommandId ( ConnectionId, String )
+    | PGConnectError CommandId Int ( ConnectionId, String )
     | PGConnectionLost CommandId ( ConnectionId, String )
     | PGDisconnectError CommandId ( ConnectionId, String )
     | PGDisconnect CommandId ConnectionId
@@ -217,6 +236,9 @@ update config msg model =
             Nop ->
                 ( model ! [], [] )
 
+            DoCmd cmd ->
+                ( model ! [ cmd ], [] )
+
             PGConnect commandId connectionId ->
                 let
                     commandIds =
@@ -228,12 +250,23 @@ update config msg model =
                       ]
                     )
 
-            PGConnectError commandId ( _, error ) ->
-                ( model ! []
-                , [ logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ error)
-                  , config.initCommandErrorTagger ( commandId, error )
-                  ]
-                )
+            PGConnectError commandId retries ( _, error ) ->
+                let
+                    newRetries =
+                        retries - 1
+
+                    errMsg =
+                        logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ error +-+ "Connection Retries:" +-+ retries)
+
+                    ( cmd, appMsgs ) =
+                        (newRetries < 1)
+                            ? ( ( Cmd.none, [ errMsg, config.initCommandErrorTagger ( commandId, error ) ] )
+                              , ( delayCmd (connectCmd commandId config.pgConnectionInfo newRetries) config.pgConnectionInfo.reconnectDelayInterval
+                                , [ errMsg ]
+                                )
+                              )
+                in
+                    ( model ! [ cmd ], appMsgs )
 
             PGConnectionLost commandId ( connectionId, error ) ->
                 ( model ! []
@@ -286,7 +319,11 @@ update config msg model =
                     ( model ! [ cmd ], [ config.commitTagger commandId ] )
 
             CommitError commandId ( connectionId, error ) ->
-                ( model ! [], [ config.commitErrorTagger ( commandId, error ) ] )
+                let
+                    cmd =
+                        Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId True
+                in
+                    ( model ! [], [ config.commitErrorTagger ( commandId, error ) ] )
 
             Rollback commandId ( connectionId, results ) ->
                 let
@@ -296,7 +333,11 @@ update config msg model =
                     ( model ! [ cmd ], [ config.rollbackTagger commandId ] )
 
             RollbackError commandId ( connectionId, error ) ->
-                ( model ! [], [ config.rollbackErrorTagger ( commandId, error ) ] )
+                let
+                    cmd =
+                        Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId True
+                in
+                    ( model ! [], [ config.rollbackErrorTagger ( commandId, error ) ] )
 
             WriteEvents commandId statement ( connectionId, results ) ->
                 let
@@ -342,7 +383,7 @@ initCommand : Model -> PGConnectionInfo -> Result String ( Model, Cmd Msg )
 initCommand model pgConnectionInfo =
     Ok
         ( { model | nextCommandId = model.nextCommandId + 1 }
-        , Postgres.connect (PGConnectError model.nextCommandId) (PGConnect model.nextCommandId) (PGConnectionLost model.nextCommandId) pgConnectionInfo.connectTimeout pgConnectionInfo.host pgConnectionInfo.port_ pgConnectionInfo.database pgConnectionInfo.user pgConnectionInfo.password
+        , connectCmd model.nextCommandId pgConnectionInfo pgConnectionInfo.retries
         )
 
 
@@ -356,7 +397,7 @@ lockEntities model commandId entities =
             Just connectionId ->
                 let
                     ( lockerModel, cmd ) =
-                        Locker.lock model.lockerModel commandId connectionId entities
+                        Locker.lock model.lockerModel commandId connectionId entities lockRetries
                 in
                     Ok ( { model | lockerModel = lockerModel }, Cmd.map LockerModule cmd )
 
@@ -447,3 +488,8 @@ insertEventsStatement events =
             String.join "," <| List.foldr (createEvents <| List.length events) [] events
     in
         "SELECT insert_events($$" +++ newEventList +++ "$$)"
+
+
+connectCmd : CommandId -> PGConnectionInfo -> Int -> Cmd Msg
+connectCmd commandId pgConnectionInfo retries =
+    Postgres.connect (PGConnectError commandId retries) (PGConnect commandId) (PGConnectionLost commandId) pgConnectionInfo.connectTimeout pgConnectionInfo.host pgConnectionInfo.port_ pgConnectionInfo.database pgConnectionInfo.user pgConnectionInfo.password
