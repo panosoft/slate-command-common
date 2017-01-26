@@ -49,8 +49,14 @@ delayUpdateMsg msg delay =
     Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
 
 
+delayCmd : Cmd Msg -> Time -> Cmd Msg
+delayCmd cmd =
+    delayUpdateMsg <| DoCmd cmd
+
+
 type Msg
     = Nop
+    | DoCmd (Cmd Msg)
     | CommandHelperError String
     | CommandHelperLog String
     | InitCommandStart
@@ -60,6 +66,10 @@ type Msg
     | LockEntitiesError ( CommandHelper.CommandId, String )
     | WriteEvents ( CommandHelper.CommandId, Int )
     | WriteEventsError ( CommandHelper.CommandId, String )
+    | Commit CommandHelper.CommandId
+    | CommitError ( CommandHelper.CommandId, String )
+    | Rollback CommandHelper.CommandId
+    | RollbackError ( CommandHelper.CommandId, String )
     | CommandHelperModule CommandHelper.Msg
 
 
@@ -75,6 +85,10 @@ commandHelperConfig =
     , lockEntitiesErrorTagger = LockEntitiesError
     , writeEventsTagger = WriteEvents
     , writeEventsErrorTagger = WriteEventsError
+    , commitTagger = Commit
+    , commitErrorTagger = CommitError
+    , rollbackTagger = Rollback
+    , rollbackErrorTagger = RollbackError
     }
 
 
@@ -124,6 +138,9 @@ update msg model =
         case msg of
             Nop ->
                 model ! []
+
+            DoCmd cmd ->
+                model ! [ cmd ]
 
             CommandHelperError error ->
                 let
@@ -213,15 +230,63 @@ update msg model =
                 let
                     l =
                         Debug.log "WriteEvents" ("Command Id:" +-+ commandId +-+ "Events Inserted:" +-+ eventRows)
+
+                    ( commandHelperModel, cmd ) =
+                        CommandHelper.commit model.commandHelperModel commandId
+                            ??= (\err ->
+                                    let
+                                        l =
+                                            Debug.log "commit Command Error:" err
+                                    in
+                                        ( model.commandHelperModel, Cmd.none )
+                                )
                 in
-                    model ! []
+                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
 
             WriteEventsError ( commandId, error ) ->
                 let
                     l =
                         Debug.log "WriteEventsError" ("Command Id:" +-+ commandId +-+ "Error:" +-+ error)
+
+                    ( commandHelperModel, cmd ) =
+                        CommandHelper.rollback model.commandHelperModel commandId
+                            ??= (\err ->
+                                    let
+                                        l =
+                                            Debug.log "rollback Command Error:" err
+                                    in
+                                        ( model.commandHelperModel, Cmd.none )
+                                )
                 in
-                    model ! []
+                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
+
+            Commit commandId ->
+                let
+                    l =
+                        Debug.log "Commit" ("Command Id:  " +-+ commandId)
+                in
+                    ( model, delayCmd (exitApp 0) (1 * second) )
+
+            CommitError ( commandId, error ) ->
+                let
+                    l =
+                        Debug.log "CommitError" error
+                in
+                    ( model, delayCmd (exitApp 1) (1 * second) )
+
+            Rollback commandId ->
+                let
+                    l =
+                        Debug.log "Rollback" ("Command Id:  " +-+ commandId)
+                in
+                    ( model, delayCmd (exitApp 0) (1 * second) )
+
+            RollbackError ( commandId, error ) ->
+                let
+                    l =
+                        Debug.log "RollbackError" error
+                in
+                    ( model, delayCmd (exitApp 1) (1 * second) )
 
             CommandHelperModule msg ->
                 updateCommandHelper msg model

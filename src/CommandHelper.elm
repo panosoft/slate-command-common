@@ -9,13 +9,13 @@ module CommandHelper
         , initCommand
         , lockEntities
         , writeEvents
+        , commit
+        , rollback
         , update
         )
 
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
-import Process
-import Task exposing (Task)
 import Time exposing (Time, second)
 import String exposing (join)
 import Postgres exposing (..)
@@ -97,6 +97,22 @@ type alias WriteEventsErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
+type alias CommitTagger msg =
+    CommandId -> msg
+
+
+type alias CommitErrorTagger msg =
+    ( CommandId, String ) -> msg
+
+
+type alias RollbackTagger msg =
+    CommandId -> msg
+
+
+type alias RollbackErrorTagger msg =
+    ( CommandId, String ) -> msg
+
+
 type alias Config msg =
     { pgConnectionInfo : PGConnectionInfo
     , pgReconnectDelayInterval : Time
@@ -108,6 +124,10 @@ type alias Config msg =
     , lockEntitiesErrorTagger : LockEntitiesErrorTagger msg
     , writeEventsTagger : WriteEventsTagger msg
     , writeEventsErrorTagger : WriteEventsErrorTagger msg
+    , commitTagger : CommitTagger msg
+    , commitErrorTagger : CommitErrorTagger msg
+    , rollbackTagger : RollbackTagger msg
+    , rollbackErrorTagger : RollbackErrorTagger msg
     }
 
 
@@ -120,22 +140,11 @@ lockerConfig =
     }
 
 
-delayUpdateMsg : Msg -> Time -> Cmd Msg
-delayUpdateMsg msg delay =
-    Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
-
-
-delayCmd : Cmd Msg -> Time -> Cmd Msg
-delayCmd cmd =
-    delayUpdateMsg <| DoCmd cmd
-
-
 {-|
     Msg
 -}
 type Msg
     = Nop
-    | DoCmd (Cmd Msg)
     | PGConnect CommandId ConnectionId
     | PGConnectError CommandId ( ConnectionId, String )
     | PGConnectionLost CommandId ( ConnectionId, String )
@@ -145,6 +154,10 @@ type Msg
     | LockEntitiesError ( CommandId, String )
     | Begin CommandId String ( ConnectionId, List String )
     | BeginError CommandId String ( ConnectionId, String )
+    | Commit CommandId ( ConnectionId, List String )
+    | CommitError CommandId ( ConnectionId, String )
+    | Rollback CommandId ( ConnectionId, List String )
+    | RollbackError CommandId ( ConnectionId, String )
     | WriteEvents CommandId String ( ConnectionId, List String )
     | WriteEventsError CommandId String ( ConnectionId, String )
     | LockerError String
@@ -204,9 +217,6 @@ update config msg model =
             Nop ->
                 ( model ! [], [] )
 
-            DoCmd cmd ->
-                ( model ! [ cmd ], [] )
-
             PGConnect commandId connectionId ->
                 let
                     commandIds =
@@ -218,10 +228,10 @@ update config msg model =
                       ]
                     )
 
-            PGConnectError commandId ( _, pgError ) ->
+            PGConnectError commandId ( _, error ) ->
                 ( model ! []
-                , [ logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ pgError)
-                  , config.initCommandErrorTagger ( commandId, pgError )
+                , [ logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ error)
+                  , config.initCommandErrorTagger ( commandId, error )
                   ]
                 )
 
@@ -231,10 +241,26 @@ update config msg model =
                 )
 
             PGDisconnectError commandId ( connectionId, error ) ->
-                ( model ! [], [] )
+                let
+                    l =
+                        Debug.log "CommandHelper PGDisconnectError"
+                            ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error +-+ "CommandIds:" +-+ commandIds)
+
+                    commandIds =
+                        Dict.remove commandId model.commandIds
+                in
+                    ( { model | commandIds = commandIds } ! [], [] )
 
             PGDisconnect commandId connectionId ->
-                ( model ! [], [] )
+                let
+                    l =
+                        Debug.log "CommandHelper PGDisconnect"
+                            ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "CommandIds:" +-+ commandIds)
+
+                    commandIds =
+                        Dict.remove commandId model.commandIds
+                in
+                    ( { model | commandIds = commandIds } ! [], [] )
 
             LockEntities commandId ->
                 ( model ! [], [ config.lockEntitiesTagger commandId ] )
@@ -251,6 +277,26 @@ update config msg model =
 
             BeginError commandId statement ( connectionId, error ) ->
                 ( model ! [], [ config.writeEventsErrorTagger ( commandId, error ) ] )
+
+            Commit commandId ( connectionId, results ) ->
+                let
+                    cmd =
+                        Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId False
+                in
+                    ( model ! [ cmd ], [ config.commitTagger commandId ] )
+
+            CommitError commandId ( connectionId, error ) ->
+                ( model ! [], [ config.commitErrorTagger ( commandId, error ) ] )
+
+            Rollback commandId ( connectionId, results ) ->
+                let
+                    cmd =
+                        Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId False
+                in
+                    ( model ! [ cmd ], [ config.rollbackTagger commandId ] )
+
+            RollbackError commandId ( connectionId, error ) ->
+                ( model ! [], [ config.rollbackErrorTagger ( commandId, error ) ] )
 
             WriteEvents commandId statement ( connectionId, results ) ->
                 let
@@ -336,6 +382,42 @@ writeEvents model commandId events =
                 Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
 
 
+commit : Model -> CommandId -> Result String ( Model, Cmd Msg )
+commit model commandId =
+    let
+        maybeConnectionId =
+            Dict.get commandId model.commandIds
+    in
+        case maybeConnectionId of
+            Just connectionId ->
+                let
+                    cmd =
+                        Postgres.query (CommitError commandId) (Commit commandId) connectionId "COMMIT" 1
+                in
+                    Ok ( model, cmd )
+
+            Nothing ->
+                Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
+
+
+rollback : Model -> CommandId -> Result String ( Model, Cmd Msg )
+rollback model commandId =
+    let
+        maybeConnectionId =
+            Dict.get commandId model.commandIds
+    in
+        case maybeConnectionId of
+            Just connectionId ->
+                let
+                    cmd =
+                        Postgres.query (RollbackError commandId) (Rollback commandId) connectionId "ROLLBACK" 1
+                in
+                    Ok ( model, cmd )
+
+            Nothing ->
+                Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
+
+
 {-|
 
 -}
@@ -348,7 +430,7 @@ writeEventsCmd commandId connectionId events =
         l =
             Debug.log "Write Events SQL" statement
     in
-        Postgres.query (BeginError commandId statement) (Begin commandId statement) connectionId "Begin" 1
+        Postgres.query (BeginError commandId statement) (Begin commandId statement) connectionId "BEGIN" 1
 
 
 insertEventsStatement : List String -> String
