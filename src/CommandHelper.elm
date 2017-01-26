@@ -292,16 +292,16 @@ update config msg model =
 {-|
     API
 -}
-initCommand : Config msg -> Model -> Result String ( Model, Cmd Msg )
-initCommand config model =
+initCommand : Model -> PGConnectionInfo -> Result String ( Model, Cmd Msg )
+initCommand model pgConnectionInfo =
     Ok
         ( { model | nextCommandId = model.nextCommandId + 1 }
-        , Postgres.connect (PGConnectError model.nextCommandId) (PGConnect model.nextCommandId) (PGConnectionLost model.nextCommandId) config.pgConnectionInfo.connectTimeout config.pgConnectionInfo.host config.pgConnectionInfo.port_ config.pgConnectionInfo.database config.pgConnectionInfo.user config.pgConnectionInfo.password
+        , Postgres.connect (PGConnectError model.nextCommandId) (PGConnect model.nextCommandId) (PGConnectionLost model.nextCommandId) pgConnectionInfo.connectTimeout pgConnectionInfo.host pgConnectionInfo.port_ pgConnectionInfo.database pgConnectionInfo.user pgConnectionInfo.password
         )
 
 
-lockEntities : Config msg -> Model -> CommandId -> List String -> Result String ( Model, Cmd Msg )
-lockEntities config model commandId entities =
+lockEntities : Model -> CommandId -> List String -> Result String ( Model, Cmd Msg )
+lockEntities model commandId entities =
     let
         maybeConnectionId =
             Dict.get commandId model.commandIds
@@ -318,8 +318,8 @@ lockEntities config model commandId entities =
                 Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
 
 
-writeEvents : Config msg -> Model -> CommandId -> List String -> Result String ( Model, Cmd Msg )
-writeEvents config model commandId events =
+writeEvents : Model -> CommandId -> List String -> Result String ( Model, Cmd Msg )
+writeEvents model commandId events =
     let
         maybeConnectionId =
             Dict.get commandId model.commandIds

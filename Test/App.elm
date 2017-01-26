@@ -145,7 +145,7 @@ update msg model =
                         Debug.log "InitCommandStart" ""
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.initCommand commandHelperConfig model.commandHelperModel
+                        CommandHelper.initCommand model.commandHelperModel commandHelperConfig.pgConnectionInfo
                             ??= (\err ->
                                     let
                                         l =
@@ -162,7 +162,7 @@ update msg model =
                         Debug.log "InitCommand" ("Command Id:  " +-+ commandId)
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.lockEntities commandHelperConfig model.commandHelperModel commandId [ entityId1, entityId2 ]
+                        CommandHelper.lockEntities model.commandHelperModel commandId [ entityId1, entityId2 ]
                             ??= (\err ->
                                     let
                                         l =
@@ -191,7 +191,7 @@ update msg model =
                         ]
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.writeEvents commandHelperConfig model.commandHelperModel commandId events
+                        CommandHelper.writeEvents model.commandHelperModel commandId events
                             ??= (\err ->
                                     let
                                         l =
