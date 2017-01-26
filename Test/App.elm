@@ -186,8 +186,8 @@ update msg model =
                         Debug.log "LockEntities" ("Command Id:  " +-+ commandId)
 
                     events =
-                        [ encodeEvent entityId1 "User Created" "Create User" "64194fcb-bf87-40c2-bee7-3a86f0110840"
-                        , encodeEvent entityId2 "User Created" "Create User" "d2a1cf24-dc3a-45d6-8310-1fb6eb184d1b"
+                        [ encodeEvent "User Created" entityId1 "Create User" "64194fcb-bf87-40c2-bee7-3a86f0110840"
+                        , encodeEvent "User Created" entityId2 "Create User" "d2a1cf24-dc3a-45d6-8310-1fb6eb184d1b"
                         ]
 
                     ( commandHelperModel, cmd ) =
