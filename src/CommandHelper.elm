@@ -354,14 +354,14 @@ writeEventsCmd commandId connectionId events =
 insertEventsStatement : List String -> String
 insertEventsStatement events =
     let
-        createEvents event newEvents =
+        createEvents totalEvents event newEvents =
             let
                 i =
-                    List.length newEvents + 1
+                    totalEvents - List.length newEvents
             in
                 "($1[" +++ i +++ "]," +++ "$2,'" +++ event +++ "')" :: newEvents
 
         newEventList =
-            String.join "," <| List.reverse <| List.foldl createEvents [] events
+            String.join "," <| List.foldr (createEvents <| List.length events) [] events
     in
         "SELECT insert_events($$" +++ newEventList +++ "$$)"
