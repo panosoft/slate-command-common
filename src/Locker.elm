@@ -126,39 +126,18 @@ update config msg model =
                                         )
                                  )
                                )
-
-                    --     l =
-                    --         ( Debug.log "Locker BeginCommand" ("CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL Response:" +-+ results)
-                    --         , Debug.log "Locker Model" (toString model)
-                    --         )
                 in
                     processNextLock config model commandId connectionId retries
 
             BeginCommandError commandId ( connectionId, error ) ->
-                -- let
-                --     l =
-                --         ( Debug.log "Locker BeginCommandError" ("CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error)
-                --         , Debug.log "Locker Model" (toString model)
-                --         )
-                -- in
                 ( model ! [], [ logErr ("BeginCommandError  CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error) ] )
 
             LockEntities commandId retries ( connectionId, results ) ->
-                -- let
-                --     l =
-                --         ( Debug.log "Locker LockEntities" ("CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL Response:" +-+ results)
-                --         , Debug.log "Locker Model" (toString model)
-                --         )
-                -- in
                 didLock results commandId
                     ? ( processNextLock config model commandId connectionId retries, retryLocks config model commandId connectionId retries )
 
             LockEntitiesError commandId ( connectionId, error ) ->
                 let
-                    -- l =
-                    --     ( Debug.log "Locker LockEntitiesError" ("CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error)
-                    --     , Debug.log "Locker Model" (toString model)
-                    --     )
                     errMsg =
                         "Locker LockEntitiesError   CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error
                 in

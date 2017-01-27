@@ -294,9 +294,6 @@ update config msg model =
 
             PGDisconnectError commandId ( connectionId, error ) ->
                 let
-                    -- l =
-                    --     Debug.log "CommandHelper PGDisconnectError"
-                    --         ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error +-+ "CommandIds:" +-+ commandIds)
                     commandIds =
                         Dict.remove commandId model.commandIds
 
@@ -307,9 +304,6 @@ update config msg model =
 
             PGDisconnect commandId connectionId ->
                 let
-                    -- l =
-                    --     Debug.log "CommandHelper PGDisconnect"
-                    --         ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "CommandIds:" +-+ commandIds)
                     commandIds =
                         Dict.remove commandId model.commandIds
                 in
@@ -375,11 +369,6 @@ update config msg model =
 
             WriteEvents commandId statement ( connectionId, results ) ->
                 let
-                    -- l =
-                    --     ( Debug.log "CommandHelper WriteEvents"
-                    --         ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Results:" +-+ results)
-                    --     , Debug.log "CommandHelper Model" model
-                    --     )
                     eventRows =
                         List.head results
                             |?> (\result ->
@@ -393,9 +382,6 @@ update config msg model =
 
             WriteEventsError commandId statement ( connectionId, error ) ->
                 let
-                    --     l =
-                    --         Debug.log "CommandHelper WriteEventsError"
-                    --             ("Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error)
                     errMsg =
                         logErr ("WriteEventsError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
@@ -507,9 +493,6 @@ writeEventsCmd commandId connectionId events =
     let
         statement =
             insertEventsStatement events
-
-        -- l =
-        --     Debug.log "Write Events SQL" statement
     in
         Postgres.query (BeginError commandId statement) (Begin commandId statement) connectionId "BEGIN" 1
 
