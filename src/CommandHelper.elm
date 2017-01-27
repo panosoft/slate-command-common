@@ -5,6 +5,7 @@ module CommandHelper
         , Config
         , CommandId
         , PGConnectionInfo
+        , Metadata
         , init
         , initCommand
         , lockEntities
@@ -26,6 +27,12 @@ import StringUtils exposing ((+-+), (+++))
 import Utils.Json exposing ((<||))
 import Utils.Ops exposing (..)
 import Locker exposing (..)
+
+
+type alias Metadata =
+    { initiatorId : String
+    , command : String
+    }
 
 
 type alias CommandId =
@@ -256,7 +263,7 @@ update config msg model =
                         retries - 1
 
                     errMsg =
-                        logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ error +-+ "Connection Retries:" +-+ retries)
+                        logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ error +-+ "Connection Retries remaining:" +-+ retries)
 
                     ( cmd, appMsgs ) =
                         (newRetries < 1)
@@ -275,21 +282,22 @@ update config msg model =
 
             PGDisconnectError commandId ( connectionId, error ) ->
                 let
-                    l =
-                        Debug.log "CommandHelper PGDisconnectError"
-                            ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error +-+ "CommandIds:" +-+ commandIds)
-
+                    -- l =
+                    --     Debug.log "CommandHelper PGDisconnectError"
+                    --         ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error +-+ "CommandIds:" +-+ commandIds)
                     commandIds =
                         Dict.remove commandId model.commandIds
+
+                    parentMsgs =
+                        [ logErr ("PGDisconnectError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error) ]
                 in
-                    ( { model | commandIds = commandIds } ! [], [] )
+                    ( { model | commandIds = commandIds } ! [], parentMsgs )
 
             PGDisconnect commandId connectionId ->
                 let
-                    l =
-                        Debug.log "CommandHelper PGDisconnect"
-                            ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "CommandIds:" +-+ commandIds)
-
+                    -- l =
+                    --     Debug.log "CommandHelper PGDisconnect"
+                    --         ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "CommandIds:" +-+ commandIds)
                     commandIds =
                         Dict.remove commandId model.commandIds
                 in
@@ -299,7 +307,11 @@ update config msg model =
                 ( model ! [], [ config.lockEntitiesTagger commandId ] )
 
             LockEntitiesError ( commandId, error ) ->
-                ( model ! [], [ config.lockEntitiesErrorTagger ( commandId, error ) ] )
+                let
+                    errMsg =
+                        logErr ("LockEntitiesError:" +-+ "Command Id:" +-+ commandId +-+ "Error:" +-+ error)
+                in
+                    ( model ! [], [ errMsg, config.lockEntitiesErrorTagger ( commandId, error ) ] )
 
             Begin commandId statement ( connectionId, results ) ->
                 let
@@ -309,7 +321,11 @@ update config msg model =
                     ( model ! [ cmd ], [] )
 
             BeginError commandId statement ( connectionId, error ) ->
-                ( model ! [], [ config.writeEventsErrorTagger ( commandId, error ) ] )
+                let
+                    errMsg =
+                        logErr ("BeginError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
+                in
+                    ( model ! [], [ errMsg, config.writeEventsErrorTagger ( commandId, error ) ] )
 
             Commit commandId ( connectionId, results ) ->
                 let
@@ -322,8 +338,11 @@ update config msg model =
                 let
                     cmd =
                         Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId True
+
+                    errMsg =
+                        logErr ("CommitError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
-                    ( model ! [], [ config.commitErrorTagger ( commandId, error ) ] )
+                    ( model ! [], [ errMsg, config.commitErrorTagger ( commandId, error ) ] )
 
             Rollback commandId ( connectionId, results ) ->
                 let
@@ -336,35 +355,39 @@ update config msg model =
                 let
                     cmd =
                         Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId True
+
+                    errMsg =
+                        logErr ("RollbackError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
-                    ( model ! [], [ config.rollbackErrorTagger ( commandId, error ) ] )
+                    ( model ! [], [ errMsg, config.rollbackErrorTagger ( commandId, error ) ] )
 
             WriteEvents commandId statement ( connectionId, results ) ->
                 let
-                    l =
-                        ( Debug.log "CommandHelper WriteEvents"
-                            ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Results:" +-+ results)
-                        , Debug.log "CommandHelper Model" model
-                        )
-
+                    -- l =
+                    --     ( Debug.log "CommandHelper WriteEvents"
+                    --         ("Command Id :" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Results:" +-+ results)
+                    --     , Debug.log "CommandHelper Model" model
+                    --     )
                     eventRows =
                         List.head results
                             |?> (\result ->
                                     JD.decodeString insertEventsResponseDecoder result
                                         |??> (\response -> response.insert_events)
-                                        ??= Debug.crash
+                                        ??= (\err -> Debug.crash ("SQL insert_events Command results could not be decoded for CommandId:" +-+ commandId +++ ". Error:" +-+ err))
                                 )
-                            ?!= (\_ -> Debug.crash "SQL Insert Events Command results list is empty")
+                            ?!= (\_ -> Debug.crash ("SQL Insert Events Command results list is  for CommandId:" +-+ commandId))
                 in
                     ( model ! [], [ config.writeEventsTagger ( commandId, eventRows ) ] )
 
             WriteEventsError commandId statement ( connectionId, error ) ->
                 let
-                    l =
-                        Debug.log "CommandHelper WriteEventsError"
-                            ("Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error)
+                    --     l =
+                    --         Debug.log "CommandHelper WriteEventsError"
+                    --             ("Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error)
+                    errMsg =
+                        logErr ("WriteEventsError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
-                    ( model ! [], [ config.writeEventsErrorTagger ( commandId, error ) ] )
+                    ( model ! [], [ errMsg, config.writeEventsErrorTagger ( commandId, error ) ] )
 
             LockerError message ->
                 ( model ! [], [ config.errorTagger message ] )
@@ -459,6 +482,11 @@ rollback model commandId =
                 Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
 
 
+createMetaData : String -> String -> Metadata
+createMetaData initiatorId command =
+    { initiatorId = initiatorId, command = command }
+
+
 {-|
 
 -}
@@ -468,8 +496,8 @@ writeEventsCmd commandId connectionId events =
         statement =
             insertEventsStatement events
 
-        l =
-            Debug.log "Write Events SQL" statement
+        -- l =
+        --     Debug.log "Write Events SQL" statement
     in
         Postgres.query (BeginError commandId statement) (Begin commandId statement) connectionId "BEGIN" 1
 
@@ -492,4 +520,12 @@ insertEventsStatement events =
 
 connectCmd : CommandId -> PGConnectionInfo -> Int -> Cmd Msg
 connectCmd commandId pgConnectionInfo retries =
-    Postgres.connect (PGConnectError commandId retries) (PGConnect commandId) (PGConnectionLost commandId) pgConnectionInfo.connectTimeout pgConnectionInfo.host pgConnectionInfo.port_ pgConnectionInfo.database pgConnectionInfo.user pgConnectionInfo.password
+    Postgres.connect (PGConnectError commandId retries)
+        (PGConnect commandId)
+        (PGConnectionLost commandId)
+        pgConnectionInfo.connectTimeout
+        pgConnectionInfo.host
+        pgConnectionInfo.port_
+        pgConnectionInfo.database
+        pgConnectionInfo.user
+        pgConnectionInfo.password

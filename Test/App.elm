@@ -155,14 +155,14 @@ update msg model =
             InitCommandStart ->
                 let
                     l =
-                        Debug.log "InitCommandStart" ""
+                        Debug.log "InitCommandStart" "Calling CommandHelper.initCommand"
 
                     ( commandHelperModel, cmd ) =
                         CommandHelper.initCommand model.commandHelperModel commandHelperConfig.pgConnectionInfo
                             ??= (\err ->
                                     let
                                         l =
-                                            Debug.log "initCommand Error:" err
+                                            Debug.log ("CommandHelper.initCommand call returned Error:" +-+ err)
                                     in
                                         ( model.commandHelperModel, Cmd.none )
                                 )
@@ -172,14 +172,14 @@ update msg model =
             InitCommand commandId ->
                 let
                     l =
-                        Debug.log "InitCommand" ("Command Id:  " +-+ commandId)
+                        Debug.log "InitCommand Complete" ("Command Id:  " +-+ commandId)
 
                     ( commandHelperModel, cmd ) =
                         CommandHelper.lockEntities model.commandHelperModel commandId [ entityId1, entityId2 ]
                             ??= (\err ->
                                     let
                                         l =
-                                            Debug.log "lockEntities Command Error:" err
+                                            Debug.log ("CommandHelper.lockEntities call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
                                     in
                                         ( model.commandHelperModel, Cmd.none )
                                 )
@@ -189,14 +189,14 @@ update msg model =
             InitCommandError ( commandId, error ) ->
                 let
                     l =
-                        Debug.log "InitCommandError" error
+                        Debug.log "InitCommand Complete with Error" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 
             LockEntities commandId ->
                 let
                     l =
-                        Debug.log "LockEntities" ("Command Id:  " +-+ commandId)
+                        Debug.log "LockEntities Complete" ("Command Id:  " +-+ commandId)
 
                     events =
                         [ encodeEvent "User Created" entityId1 "Create User" "64194fcb-bf87-40c2-bee7-3a86f0110840"
@@ -208,7 +208,7 @@ update msg model =
                             ??= (\err ->
                                     let
                                         l =
-                                            Debug.log "writeEvents Command Error:" err
+                                            Debug.log ("CommandHelper.writeEvents call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
                                     in
                                         ( model.commandHelperModel, Cmd.none )
                                 )
@@ -218,14 +218,14 @@ update msg model =
             LockEntitiesError ( commandId, error ) ->
                 let
                     l =
-                        Debug.log "LockEntitiesError" error
+                        Debug.log "LockEntities Complete with Error" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
 
                     ( commandHelperModel, cmd ) =
                         CommandHelper.rollback model.commandHelperModel commandId
                             ??= (\err ->
                                     let
                                         l =
-                                            Debug.log "rollback Command Error:" err
+                                            Debug.log ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
                                     in
                                         ( model.commandHelperModel, Cmd.none )
                                 )
@@ -235,14 +235,14 @@ update msg model =
             WriteEvents ( commandId, eventRows ) ->
                 let
                     l =
-                        Debug.log "WriteEvents" ("Command Id:" +-+ commandId +-+ "Events Inserted:" +-+ eventRows)
+                        Debug.log "WriteEvents Complete" ("Command Id:" +-+ commandId +-+ "Events Inserted:" +-+ eventRows)
 
                     ( commandHelperModel, cmd ) =
                         CommandHelper.commit model.commandHelperModel commandId
                             ??= (\err ->
                                     let
                                         l =
-                                            Debug.log "commit Command Error:" err
+                                            Debug.log ("CommandHelper.commit call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
                                     in
                                         ( model.commandHelperModel, Cmd.none )
                                 )
@@ -252,14 +252,14 @@ update msg model =
             WriteEventsError ( commandId, error ) ->
                 let
                     l =
-                        Debug.log "WriteEventsError" ("Command Id:" +-+ commandId +-+ "Error:" +-+ error)
+                        Debug.log "WriteEvents Complete with Error" ("Command Id:" +-+ commandId +-+ "Error:" +-+ error)
 
                     ( commandHelperModel, cmd ) =
                         CommandHelper.rollback model.commandHelperModel commandId
                             ??= (\err ->
                                     let
                                         l =
-                                            Debug.log "rollback Command Error:" err
+                                            Debug.log ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
                                     in
                                         ( model.commandHelperModel, Cmd.none )
                                 )
@@ -269,28 +269,28 @@ update msg model =
             Commit commandId ->
                 let
                     l =
-                        Debug.log "Commit" ("Command Id:  " +-+ commandId)
+                        Debug.log "Commit Complete" ("Command Id:  " +-+ commandId)
                 in
                     ( model, delayCmd (exitApp 0) (1 * second) )
 
             CommitError ( commandId, error ) ->
                 let
                     l =
-                        Debug.log "CommitError" error
+                        Debug.log "Commit Complete with Error" ("Command Id:" +-+ commandId +-+ "Error:" +-+ error)
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 
             Rollback commandId ->
                 let
                     l =
-                        Debug.log "Rollback" ("Command Id:  " +-+ commandId)
+                        Debug.log "Rollback Complete" ("Command Id:  " +-+ commandId)
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 
             RollbackError ( commandId, error ) ->
                 let
                     l =
-                        Debug.log "RollbackError" error
+                        Debug.log "Rollback Complete with Error" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 
