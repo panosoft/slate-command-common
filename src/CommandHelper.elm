@@ -139,6 +139,10 @@ type alias RollbackErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
+type alias ResourceErrorTagger msg =
+    ( CommandId, String ) -> msg
+
+
 type alias Config msg =
     { pgConnectionInfo : PGConnectionInfo
     , errorTagger : ErrorTagger msg
@@ -153,6 +157,7 @@ type alias Config msg =
     , commitErrorTagger : CommitErrorTagger msg
     , rollbackTagger : RollbackTagger msg
     , rollbackErrorTagger : RollbackErrorTagger msg
+    , resourceErrorTagger : ResourceErrorTagger msg
     }
 
 
@@ -276,9 +281,16 @@ update config msg model =
                     ( model ! [ cmd ], appMsgs )
 
             PGConnectionLost commandId ( connectionId, error ) ->
-                ( model ! []
-                , [ logErr ("PGConnectLost:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error) ]
-                )
+                let
+                    commandIds =
+                        Dict.remove commandId model.commandIds
+
+                    errMsg =
+                        "PGConnectLost:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error
+                in
+                    ( { model | commandIds = commandIds } ! []
+                    , [ logErr errMsg, config.resourceErrorTagger ( commandId, errMsg ) ]
+                    )
 
             PGDisconnectError commandId ( connectionId, error ) ->
                 let

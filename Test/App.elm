@@ -67,6 +67,7 @@ type Msg
     | CommitError ( CommandHelper.CommandId, String )
     | Rollback CommandHelper.CommandId
     | RollbackError ( CommandHelper.CommandId, String )
+    | ResourceError ( CommandHelper.CommandId, String )
     | CommandHelperModule CommandHelper.Msg
 
 
@@ -85,6 +86,7 @@ commandHelperConfig =
     , commitErrorTagger = CommitError
     , rollbackTagger = Rollback
     , rollbackErrorTagger = RollbackError
+    , resourceErrorTagger = ResourceError
     }
 
 
@@ -291,6 +293,13 @@ update msg model =
                 let
                     l =
                         Debug.log "Rollback Complete with Error" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
+                in
+                    ( model, delayCmd (exitApp 1) (1 * second) )
+
+            ResourceError ( commandId, error ) ->
+                let
+                    l =
+                        Debug.log "Resource Error Occurred" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 
