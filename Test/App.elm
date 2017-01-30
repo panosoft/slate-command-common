@@ -74,6 +74,7 @@ type Msg
 commandHelperConfig : CommandHelper.Config Msg
 commandHelperConfig =
     { pgConnectionInfo = pgConnectionInfo
+    , lockRetries = 3
     , errorTagger = CommandHelperError
     , logTagger = CommandHelperLog
     , initCommandTagger = InitCommand

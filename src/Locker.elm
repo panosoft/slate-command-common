@@ -72,7 +72,8 @@ type alias LockEntitiesErrorTagger msg =
 
 
 type alias Config msg =
-    { errorTagger : ErrorTagger msg
+    { retries : Int
+    , errorTagger : ErrorTagger msg
     , logTagger : LogTagger msg
     , lockEntitiesTagger : LockEntitiesTagger msg
     , lockEntitiesErrorTagger : LockEntitiesErrorTagger msg
@@ -112,7 +113,7 @@ update config msg model =
             Nop ->
                 ( model ! [], [] )
 
-            BeginCommand commandId retries ( connectionId, results ) ->
+            BeginCommand commandId retryCount ( connectionId, results ) ->
                 let
                     test =
                         List.isEmpty results
@@ -127,14 +128,14 @@ update config msg model =
                                  )
                                )
                 in
-                    processNextLock config model commandId connectionId retries
+                    processNextLock config model commandId connectionId retryCount
 
             BeginCommandError commandId ( connectionId, error ) ->
                 ( model ! [], [ logErr ("BeginCommandError  CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error) ] )
 
-            LockEntities commandId retries ( connectionId, results ) ->
+            LockEntities commandId retryCount ( connectionId, results ) ->
                 didLock results commandId
-                    ? ( processNextLock config model commandId connectionId retries, retryLocks config model commandId connectionId retries )
+                    ? ( processNextLock config model commandId connectionId retryCount, retryLocks config model commandId connectionId retryCount )
 
             LockEntitiesError commandId ( connectionId, error ) ->
                 let
@@ -147,7 +148,7 @@ update config msg model =
                       ]
                     )
 
-            Rollback commandId retries ( connectionId, results ) ->
+            Rollback commandId retryCount ( connectionId, results ) ->
                 let
                     test =
                         List.isEmpty results
@@ -163,12 +164,12 @@ update config msg model =
                                )
 
                     ( cmd, parentMsgs ) =
-                        (retries < 1)
-                            ? ( ( Cmd.none
-                                , [ config.lockEntitiesErrorTagger ( commandId, "Failed to obtain all locks for CommandId:" +-+ commandId ) ]
+                        (retryCount <= config.retries)
+                            ? ( ( Postgres.query (BeginCommandError commandId) (BeginCommand commandId (retryCount + 1)) connectionId beginTrans 1
+                                , [ logErr ("lock Command Error:" +-+ "Command Id:" +-+ commandId +-+ "Error:" +-+ "Could not obtains all locks." +-+ "Retry:" +-+ retryCount) ]
                                 )
-                              , ( Postgres.query (BeginCommandError commandId) (BeginCommand commandId (retries - 1)) connectionId beginTrans 1
-                                , [ logErr ("lock Command Error:" +-+ "Command Id:" +-+ commandId +-+ "Error:" +-+ "Could not obtains all locks." +-+ "Retries remaining:" +-+ retries) ]
+                              , ( Cmd.none
+                                , [ config.lockEntitiesErrorTagger ( commandId, "Failed to obtain all locks for CommandId:" +-+ commandId ) ]
                                 )
                               )
                 in
@@ -185,8 +186,8 @@ update config msg model =
 {-|
     API
 -}
-lock : Model -> CommandId -> ConnectionId -> List Guid -> Int -> ( Model, Cmd Msg )
-lock model commandId connectionId guids retries =
+lock : Model -> CommandId -> ConnectionId -> List Guid -> ( Model, Cmd Msg )
+lock model commandId connectionId guids =
     let
         locks =
             createLocks guids
@@ -195,7 +196,7 @@ lock model commandId connectionId guids retries =
             Dict.insert connectionId (LockState guids locks) model.lockRequests
     in
         ( { model | lockRequests = lockRequests }
-        , Postgres.query (BeginCommandError commandId) (BeginCommand commandId retries) connectionId beginTrans 1
+        , Postgres.query (BeginCommandError commandId) (BeginCommand commandId 1) connectionId beginTrans 1
         )
 
 
@@ -208,13 +209,13 @@ createLocks guids =
 
 
 processNextLock : Config msg -> Model -> CommandId -> ConnectionId -> Int -> ( ( Model, Cmd Msg ), List msg )
-processNextLock config model commandId connectionId retries =
+processNextLock config model commandId connectionId retryCount =
     Dict.get connectionId model.lockRequests
         |?> (\lockState ->
                 List.head lockState.locks
                     |?> (\lock ->
                             ( { model | lockRequests = Dict.insert connectionId { lockState | locks = List.drop 1 lockState.locks } model.lockRequests }
-                                ! [ lockCmd commandId connectionId lock retries ]
+                                ! [ lockCmd commandId connectionId lock retryCount ]
                             , []
                             )
                         )
@@ -224,11 +225,11 @@ processNextLock config model commandId connectionId retries =
 
 
 retryLocks : Config msg -> Model -> CommandId -> ConnectionId -> Int -> ( ( Model, Cmd Msg ), List msg )
-retryLocks config model commandId connectionId retries =
+retryLocks config model commandId connectionId retryCount =
     Dict.get connectionId model.lockRequests
         |?> (\lockState ->
                 ( { model | lockRequests = Dict.insert connectionId { lockState | locks = createLocks lockState.guids } model.lockRequests }
-                    ! [ Postgres.query (RollbackError commandId) (Rollback commandId retries) connectionId "ROLLBACK" 1 ]
+                    ! [ Postgres.query (RollbackError commandId) (Rollback commandId retryCount) connectionId "ROLLBACK" 1 ]
                 , []
                 )
             )
@@ -236,12 +237,12 @@ retryLocks config model commandId connectionId retries =
 
 
 lockCmd : CommandId -> ConnectionId -> Int -> Int -> Cmd Msg
-lockCmd commandId connectionId lock retries =
+lockCmd commandId connectionId lock retryCount =
     let
         createLockStatement lock =
             "SELECT pg_try_advisory_xact_lock(" ++ (toString lock) ++ ");"
     in
-        Postgres.query (LockEntitiesError commandId) (LockEntities commandId retries) connectionId (createLockStatement lock) 2
+        Postgres.query (LockEntitiesError commandId) (LockEntities commandId retryCount) connectionId (createLockStatement lock) 2
 
 
 didLock : List String -> CommandId -> Bool

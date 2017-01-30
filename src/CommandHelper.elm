@@ -52,11 +52,6 @@ type alias InsertEventsResponse =
     }
 
 
-lockRetries : Int
-lockRetries =
-    3
-
-
 insertEventsResponseDecoder : JD.Decoder InsertEventsResponse
 insertEventsResponseDecoder =
     JD.succeed InsertEventsResponse
@@ -145,6 +140,7 @@ type alias ResourceErrorTagger msg =
 
 type alias Config msg =
     { pgConnectionInfo : PGConnectionInfo
+    , lockRetries : Int
     , errorTagger : ErrorTagger msg
     , logTagger : LogTagger msg
     , initCommandTagger : InitCommandTagger msg
@@ -161,9 +157,10 @@ type alias Config msg =
     }
 
 
-lockerConfig : Locker.Config Msg
-lockerConfig =
-    { errorTagger = LockerError
+lockerConfig : Config msg -> Locker.Config Msg
+lockerConfig config =
+    { retries = config.lockRetries
+    , errorTagger = LockerError
     , logTagger = LockerLog
     , lockEntitiesTagger = LockEntities
     , lockEntitiesErrorTagger = LockEntitiesError
@@ -242,7 +239,7 @@ update config msg model =
             config.errorTagger error
 
         updateLocker =
-            ParentChildUpdate.updateChildParent (Locker.update lockerConfig) (update config) .lockerModel LockerModule (\model lockerModel -> { model | lockerModel = lockerModel })
+            ParentChildUpdate.updateChildParent (Locker.update <| lockerConfig config) (update config) .lockerModel LockerModule (\model lockerModel -> { model | lockerModel = lockerModel })
     in
         case msg of
             Nop ->
@@ -418,7 +415,7 @@ lockEntities model commandId entities =
             Just connectionId ->
                 let
                     ( lockerModel, cmd ) =
-                        Locker.lock model.lockerModel commandId connectionId entities lockRetries
+                        Locker.lock model.lockerModel commandId connectionId entities
                 in
                     Ok ( { model | lockerModel = lockerModel }, Cmd.map LockerModule cmd )
 
