@@ -18,8 +18,17 @@ port exitApp : Float -> Cmd msg
 port externalStop : (() -> msg) -> Sub msg
 
 
-pgConnectionInfo : CommandHelper.PGConnectionInfo
-pgConnectionInfo =
+{-|
+    TODO Remove this and import it from slate-common.
+-}
+type alias Metadata =
+    { initiatorId : String
+    , command : String
+    }
+
+
+pgConnectionConfig : CommandHelper.PGConnectionConfig
+pgConnectionConfig =
     { host = "localPGDbServer"
     , port_ = 5432
     , database = "parallelsTest"
@@ -73,7 +82,7 @@ type Msg
 
 commandHelperConfig : CommandHelper.Config Msg
 commandHelperConfig =
-    { pgConnectionInfo = pgConnectionInfo
+    { pgConnectionConfig = pgConnectionConfig
     , lockRetries = 3
     , errorTagger = CommandHelperError
     , logTagger = CommandHelperLog
@@ -161,7 +170,7 @@ update msg model =
                         Debug.log "InitCommandStart" "Calling CommandHelper.initCommand"
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.initCommand model.commandHelperModel commandHelperConfig.pgConnectionInfo
+                        CommandHelper.initCommand commandHelperConfig model.commandHelperModel
                             ??= (\err ->
                                     let
                                         l =

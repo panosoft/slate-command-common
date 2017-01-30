@@ -4,8 +4,7 @@ module CommandHelper
         , Model
         , Config
         , CommandId
-        , PGConnectionInfo
-        , Metadata
+        , PGConnectionConfig
         , init
         , initCommand
         , lockEntities
@@ -29,6 +28,9 @@ import Utils.Ops exposing (..)
 import Locker exposing (..)
 
 
+{-|
+    TODO Remove this and import it from slate-common.
+-}
 type alias Metadata =
     { initiatorId : String
     , command : String
@@ -36,10 +38,6 @@ type alias Metadata =
 
 
 type alias CommandId =
-    Int
-
-
-type alias ConnectionId =
     Int
 
 
@@ -69,9 +67,9 @@ delayCmd cmd =
 
 
 {-|
-    Postgres connection info
+    Postgres connection config
 -}
-type alias PGConnectionInfo =
+type alias PGConnectionConfig =
     { host : String
     , port_ : Int
     , database : String
@@ -139,7 +137,7 @@ type alias ResourceErrorTagger msg =
 
 
 type alias Config msg =
-    { pgConnectionInfo : PGConnectionInfo
+    { pgConnectionConfig : PGConnectionConfig
     , lockRetries : Int
     , errorTagger : ErrorTagger msg
     , logTagger : LogTagger msg
@@ -270,7 +268,7 @@ update config msg model =
                     ( cmd, appMsgs ) =
                         (newRetries < 1)
                             ? ( ( Cmd.none, [ errMsg, config.initCommandErrorTagger ( commandId, error ) ] )
-                              , ( delayCmd (connectCmd commandId config.pgConnectionInfo newRetries) config.pgConnectionInfo.reconnectDelayInterval
+                              , ( delayCmd (connectCmd config commandId newRetries) config.pgConnectionConfig.reconnectDelayInterval
                                 , [ errMsg ]
                                 )
                               )
@@ -397,11 +395,11 @@ update config msg model =
 {-|
     API
 -}
-initCommand : Model -> PGConnectionInfo -> Result String ( Model, Cmd Msg )
-initCommand model pgConnectionInfo =
+initCommand : Config msg -> Model -> Result String ( Model, Cmd Msg )
+initCommand config model =
     Ok
         ( { model | nextCommandId = model.nextCommandId + 1 }
-        , connectCmd model.nextCommandId pgConnectionInfo pgConnectionInfo.retries
+        , connectCmd config model.nextCommandId config.pgConnectionConfig.retries
         )
 
 
@@ -510,14 +508,14 @@ insertEventsStatement events =
         "SELECT insert_events($$" +++ newEventList +++ "$$)"
 
 
-connectCmd : CommandId -> PGConnectionInfo -> Int -> Cmd Msg
-connectCmd commandId pgConnectionInfo retries =
+connectCmd : Config msg -> CommandId -> Int -> Cmd Msg
+connectCmd config commandId retries =
     Postgres.connect (PGConnectError commandId retries)
         (PGConnect commandId)
         (PGConnectionLost commandId)
-        pgConnectionInfo.connectTimeout
-        pgConnectionInfo.host
-        pgConnectionInfo.port_
-        pgConnectionInfo.database
-        pgConnectionInfo.user
-        pgConnectionInfo.password
+        config.pgConnectionConfig.connectTimeout
+        config.pgConnectionConfig.host
+        config.pgConnectionConfig.port_
+        config.pgConnectionConfig.database
+        config.pgConnectionConfig.user
+        config.pgConnectionConfig.password
