@@ -257,20 +257,14 @@ update config msg model =
                       ]
                     )
 
-            PGConnectError commandId retries ( _, error ) ->
+            PGConnectError commandId retryCount ( _, error ) ->
                 let
-                    newRetries =
-                        retries - 1
-
-                    errMsg =
-                        logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ error +-+ "Connection Retries remaining:" +-+ retries)
-
                     ( cmd, appMsgs ) =
-                        (newRetries < 1)
-                            ? ( ( Cmd.none, [ errMsg, config.initCommandErrorTagger ( commandId, error ) ] )
-                              , ( delayCmd (connectCmd config commandId newRetries) config.pgConnectionConfig.reconnectDelayInterval
-                                , [ errMsg ]
+                        (retryCount <= config.pgConnectionConfig.retries)
+                            ? ( ( delayCmd (connectCmd config commandId (retryCount + 1)) config.pgConnectionConfig.reconnectDelayInterval
+                                , [ logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ error +-+ "Connection Retry:" +-+ retryCount) ]
                                 )
+                              , ( Cmd.none, [ config.initCommandErrorTagger ( commandId, error ) ] )
                               )
                 in
                     ( model ! [ cmd ], appMsgs )
@@ -399,7 +393,7 @@ initCommand : Config msg -> Model -> Result String ( Model, Cmd Msg )
 initCommand config model =
     Ok
         ( { model | nextCommandId = model.nextCommandId + 1 }
-        , connectCmd config model.nextCommandId config.pgConnectionConfig.retries
+        , connectCmd config model.nextCommandId 1
         )
 
 
