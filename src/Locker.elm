@@ -14,6 +14,8 @@ import FNV exposing (..)
 import Postgres exposing (..)
 import Utils.Ops exposing (..)
 import Utils.Json exposing ((<||))
+import Utils.Error exposing (..)
+import Utils.Log exposing (..)
 import StringUtils exposing (..)
 import List exposing (isEmpty)
 
@@ -56,11 +58,11 @@ lockResponseDecoder =
 parent msg taggers
 -}
 type alias ErrorTagger msg =
-    String -> msg
+    ( ErrorType, ( CommandId, String ) ) -> msg
 
 
 type alias LogTagger msg =
-    String -> msg
+    ( LogLevel, ( CommandId, String ) ) -> msg
 
 
 type alias LockEntitiesTagger msg =
@@ -103,11 +105,14 @@ init =
 update : Config msg -> Msg -> Model -> ( ( Model, Cmd Msg ), List msg )
 update config msg model =
     let
-        logMsg message =
-            config.logTagger message
+        logMsg commandId message =
+            config.logTagger ( LogLevelInfo, ( commandId, message ) )
 
-        logErr error =
-            config.errorTagger error
+        nonFatal commandId error =
+            config.errorTagger ( NonFatalError, ( commandId, error ) )
+
+        fatal commandId error =
+            config.errorTagger ( FatalError, ( commandId, error ) )
     in
         case msg of
             Nop ->
@@ -115,70 +120,70 @@ update config msg model =
 
             BeginCommand commandId retryCount ( connectionId, results ) ->
                 let
-                    test =
-                        List.isEmpty results
-                            ?! ( (\_ -> ())
-                               , (\_ ->
-                                    Debug.crash
-                                        ("SQL BEGIN Command results list is not empty for CommandId:"
-                                            +-+ commandId
-                                            +++ ". Results:"
-                                            ++ (toString results)
-                                        )
-                                 )
+                    fatalParentMsgs =
+                        (results == [])
+                            ?! ( (\_ -> [])
+                               , (\_ -> [ fatal commandId ("SQL BEGIN Command results list is not empty. Results:" ++ (toString results)) ])
                                )
                 in
-                    processNextLock config model commandId connectionId retryCount
+                    (fatalParentMsgs /= [])
+                        ? ( ( model ! [], fatalParentMsgs )
+                          , processNextLock config model commandId connectionId retryCount
+                          )
 
             BeginCommandError commandId ( connectionId, error ) ->
-                ( model ! [], [ logErr ("BeginCommandError  CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error) ] )
+                ( model ! [], [ nonFatal commandId ("BeginCommandError:" +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error) ] )
 
             LockEntities commandId retryCount ( connectionId, results ) ->
-                didLock results commandId
-                    ? ( processNextLock config model commandId connectionId retryCount, retryLocks config model commandId connectionId retryCount )
+                let
+                    ( gotLock, fatalParentMsgs ) =
+                        didLock config results commandId
+                in
+                    case fatalParentMsgs /= [] of
+                        True ->
+                            ( model ! [], fatalParentMsgs )
+
+                        False ->
+                            gotLock ? ( processNextLock config model commandId connectionId retryCount, retryLocks config model commandId connectionId retryCount )
 
             LockEntitiesError commandId ( connectionId, error ) ->
                 let
                     errMsg =
-                        "Locker LockEntitiesError   CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error
+                        "Locker LockEntitiesError:" +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error
                 in
                     ( model ! []
-                    , [ logErr errMsg
+                    , [ nonFatal commandId errMsg
                       , config.lockEntitiesErrorTagger ( commandId, errMsg )
                       ]
                     )
 
             Rollback commandId retryCount ( connectionId, results ) ->
                 let
-                    test =
-                        List.isEmpty results
-                            ?! ( (\_ -> ())
-                               , (\_ ->
-                                    Debug.crash
-                                        ("SQL ROLLBACK Command results list is not empty for CommandId:"
-                                            +-+ commandId
-                                            +++ ". Results:"
-                                            ++ (toString results)
-                                        )
-                                 )
+                    fatalParentMsgs =
+                        (results == [])
+                            ?! ( (\_ -> [])
+                               , (\_ -> [ fatal commandId ("SQL ROLLBACK Command results list is not empty. Results:" ++ (toString results)) ])
                                )
 
                     ( cmd, parentMsgs ) =
                         (retryCount <= config.retries)
                             ? ( ( Postgres.query (BeginCommandError commandId) (BeginCommand commandId (retryCount + 1)) connectionId beginTrans 1
-                                , [ logErr ("lock Command Error:" +-+ "Command Id:" +-+ commandId +-+ "Error:" +-+ "Could not obtains all locks." +-+ "Retry:" +-+ retryCount) ]
+                                , [ nonFatal commandId ("lock Command Error:" +-+ "Error:" +-+ "Could not obtains all locks." +-+ "Retry:" +-+ retryCount) ]
                                 )
                               , ( Cmd.none
-                                , [ config.lockEntitiesErrorTagger ( commandId, "Failed to obtain all locks for CommandId:" +-+ commandId ) ]
+                                , [ config.lockEntitiesErrorTagger ( commandId, "Failed to obtain all locks" ) ]
                                 )
                               )
                 in
-                    ( model ! [ cmd ], parentMsgs )
+                    (fatalParentMsgs /= [])
+                        ? ( ( model ! [], fatalParentMsgs )
+                          , ( model ! [ cmd ], parentMsgs )
+                          )
 
             RollbackError commandId ( connectionId, error ) ->
                 let
                     parentMsgs =
-                        [ logErr ("Locker RollbackError   CommandId:" +-+ commandId +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error) ]
+                        [ nonFatal commandId ("Locker RollbackError :" +-+ "ConnectionId:" +-+ connectionId +-+ "SQL error:" +-+ error) ]
                 in
                     ( model ! [], parentMsgs )
 
@@ -221,7 +226,7 @@ processNextLock config model commandId connectionId retryCount =
                         )
                     ?= ( { model | lockRequests = Dict.remove connectionId model.lockRequests } ! [], [ config.lockEntitiesTagger commandId ] )
             )
-        ?!= (\_ -> Debug.crash ("BUG -- Missing connectionId for CommandId:" +-+ commandId))
+        ?!= (\_ -> ( model ! [], [ config.errorTagger ( FatalError, ( commandId, ("BUG -- Missing connectionId") ) ) ] ))
 
 
 retryLocks : Config msg -> Model -> CommandId -> ConnectionId -> Int -> ( ( Model, Cmd Msg ), List msg )
@@ -233,7 +238,7 @@ retryLocks config model commandId connectionId retryCount =
                 , []
                 )
             )
-        ?!= (\_ -> Debug.crash ("BUG -- Missing connectionId for CommandId:" +-+ commandId))
+        ?!= (\_ -> ( model ! [], [ config.errorTagger ( FatalError, ( commandId, ("BUG -- Missing connectionId") ) ) ] ))
 
 
 lockCmd : CommandId -> ConnectionId -> Int -> Int -> Cmd Msg
@@ -245,12 +250,16 @@ lockCmd commandId connectionId lock retryCount =
         Postgres.query (LockEntitiesError commandId) (LockEntities commandId retryCount) connectionId (createLockStatement lock) 2
 
 
-didLock : List String -> CommandId -> Bool
-didLock results commandId =
-    List.head results
-        |?> (\result ->
-                JD.decodeString lockResponseDecoder result
-                    |??> (\response -> response.pg_try_advisory_xact_lock)
-                    ??= (\err -> Debug.crash ("SQL Lock Command results could not be decoded for CommandId:" +-+ commandId +++ ". Error:" +-+ err))
-            )
-        ?!= (\_ -> Debug.crash ("SQL Lock Command results list is empty for CommandId:" +-+ commandId))
+didLock : Config msg -> List String -> CommandId -> ( Bool, List msg )
+didLock config results commandId =
+    let
+        fatal commandId error =
+            config.errorTagger ( FatalError, ( commandId, error ) )
+    in
+        List.head results
+            |?> (\result ->
+                    JD.decodeString lockResponseDecoder result
+                        |??> (\response -> ( response.pg_try_advisory_xact_lock, [] ))
+                        ??= (\err -> ( False, [ fatal commandId ("SQL Lock Command results could not be decoded. Error:" +-+ err) ] ))
+                )
+            ?!= (\_ -> ( False, [ fatal commandId ("SQL Lock Command results list is empty") ] ))

@@ -9,6 +9,8 @@ import CommandHelper
 import ParentChildUpdate exposing (..)
 import StringUtils exposing ((+-+), (+++))
 import Utils.Ops exposing (..)
+import Utils.Error exposing (..)
+import Utils.Log exposing (..)
 import Json.Encode as JE
 
 
@@ -63,8 +65,8 @@ delayCmd cmd =
 type Msg
     = Nop
     | DoCmd (Cmd Msg)
-    | CommandHelperError String
-    | CommandHelperLog String
+    | CommandHelperError ( ErrorType, ( CommandHelper.CommandId, String ) )
+    | CommandHelperLog ( LogLevel, ( CommandHelper.CommandId, String ) )
     | InitCommandStart
     | InitCommand CommandHelper.CommandId
     | InitCommandError ( CommandHelper.CommandId, String )
@@ -76,7 +78,7 @@ type Msg
     | CommitError ( CommandHelper.CommandId, String )
     | Rollback CommandHelper.CommandId
     | RollbackError ( CommandHelper.CommandId, String )
-    | ResourceError ( CommandHelper.CommandId, String )
+    | ConnectionLost ( CommandHelper.CommandId, String )
     | CommandHelperModule CommandHelper.Msg
 
 
@@ -96,7 +98,7 @@ commandHelperConfig =
     , commitErrorTagger = CommitError
     , rollbackTagger = Rollback
     , rollbackErrorTagger = RollbackError
-    , resourceErrorTagger = ResourceError
+    , connectionLostTagger = ConnectionLost
     }
 
 
@@ -150,17 +152,22 @@ update msg model =
             DoCmd cmd ->
                 model ! [ cmd ]
 
-            CommandHelperError error ->
+            CommandHelperError ( errorType, details ) ->
                 let
                     l =
-                        Debug.log "CommandHelperError" error
+                        case errorType of
+                            NonFatalError ->
+                                Debug.log "CommandHelperError" details
+
+                            _ ->
+                                Debug.crash <| toString details
                 in
                     model ! []
 
-            CommandHelperLog message ->
+            CommandHelperLog ( logLevel, details ) ->
                 let
                     l =
-                        Debug.log "CommandHelperLog" message
+                        Debug.log "CommandHelperLog" (toString logLevel ++ ":" +-+ details)
                 in
                     model ! []
 
@@ -306,10 +313,10 @@ update msg model =
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 
-            ResourceError ( commandId, error ) ->
+            ConnectionLost ( commandId, error ) ->
                 let
                     l =
-                        Debug.log "Resource Error Occurred" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
+                        Debug.log "ConnectionLost" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 

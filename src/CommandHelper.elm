@@ -25,6 +25,8 @@ import ParentChildUpdate exposing (..)
 import StringUtils exposing ((+-+), (+++))
 import Utils.Json exposing ((<||))
 import Utils.Ops exposing (..)
+import Utils.Error exposing (..)
+import Utils.Log exposing (..)
 import Locker exposing (..)
 
 
@@ -85,11 +87,11 @@ type alias PGConnectionConfig =
     parent msg taggers
 -}
 type alias ErrorTagger msg =
-    String -> msg
+    ( ErrorType, ( CommandId, String ) ) -> msg
 
 
 type alias LogTagger msg =
-    String -> msg
+    ( LogLevel, ( CommandId, String ) ) -> msg
 
 
 type alias InitCommandTagger msg =
@@ -132,7 +134,7 @@ type alias RollbackErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
-type alias ResourceErrorTagger msg =
+type alias ConnectionLostTagger msg =
     ( CommandId, String ) -> msg
 
 
@@ -151,7 +153,7 @@ type alias Config msg =
     , commitErrorTagger : CommitErrorTagger msg
     , rollbackTagger : RollbackTagger msg
     , rollbackErrorTagger : RollbackErrorTagger msg
-    , resourceErrorTagger : ResourceErrorTagger msg
+    , connectionLostTagger : ConnectionLostTagger msg
     }
 
 
@@ -186,8 +188,8 @@ type Msg
     | RollbackError CommandId ( ConnectionId, String )
     | WriteEvents CommandId String ( ConnectionId, List String )
     | WriteEventsError CommandId String ( ConnectionId, String )
-    | LockerError String
-    | LockerLog String
+    | LockerError ( ErrorType, ( CommandId, String ) )
+    | LockerLog ( LogLevel, ( CommandId, String ) )
     | LockerModule Locker.Msg
 
 
@@ -230,11 +232,14 @@ init =
 update : Config msg -> Msg -> Model -> ( ( Model, Cmd Msg ), List msg )
 update config msg model =
     let
-        logMsg message =
-            config.logTagger message
+        logMsg commandId message =
+            config.logTagger ( LogLevelInfo, ( commandId, message ) )
 
-        logErr error =
-            config.errorTagger error
+        nonFatal commandId error =
+            config.errorTagger ( NonFatalError, ( commandId, error ) )
+
+        fatal commandId error =
+            config.errorTagger ( FatalError, ( commandId, error ) )
 
         updateLocker =
             ParentChildUpdate.updateChildParent (Locker.update <| lockerConfig config) (update config) .lockerModel LockerModule (\model lockerModel -> { model | lockerModel = lockerModel })
@@ -252,7 +257,7 @@ update config msg model =
                         Dict.insert commandId connectionId model.commandIds
                 in
                     ( { model | commandIds = commandIds } ! []
-                    , [ logMsg ("PGConnect:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId)
+                    , [ logMsg commandId ("PGConnect:" +-+ "Connection Id:" +-+ connectionId)
                       , config.initCommandTagger commandId
                       ]
                     )
@@ -262,7 +267,7 @@ update config msg model =
                     ( cmd, appMsgs ) =
                         (retryCount <= config.pgConnectionConfig.retries)
                             ? ( ( delayCmd (connectCmd config commandId (retryCount + 1)) config.pgConnectionConfig.reconnectDelayInterval
-                                , [ logErr ("initCommand Error:" +-+ "Command Id:" +-+ commandId +-+ "Connection Error:" +-+ error +-+ "Connection Retry:" +-+ retryCount) ]
+                                , [ nonFatal commandId ("initCommand Error:" +-+ "Connection Error:" +-+ error +-+ "Connection Retry:" +-+ retryCount) ]
                                 )
                               , ( Cmd.none, [ config.initCommandErrorTagger ( commandId, error ) ] )
                               )
@@ -275,10 +280,10 @@ update config msg model =
                         Dict.remove commandId model.commandIds
 
                     errMsg =
-                        "PGConnectLost:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error
+                        "PGConnectLost:" +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error
                 in
                     ( { model | commandIds = commandIds } ! []
-                    , [ logErr errMsg, config.resourceErrorTagger ( commandId, errMsg ) ]
+                    , [ nonFatal commandId errMsg, config.connectionLostTagger ( commandId, errMsg ) ]
                     )
 
             PGDisconnectError commandId ( connectionId, error ) ->
@@ -287,7 +292,7 @@ update config msg model =
                         Dict.remove commandId model.commandIds
 
                     parentMsgs =
-                        [ logErr ("PGDisconnectError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error) ]
+                        [ nonFatal commandId ("PGDisconnectError:" +-+ "Connection Id:" +-+ connectionId +-+ "Connection Error:" +-+ error) ]
                 in
                     ( { model | commandIds = commandIds } ! [], parentMsgs )
 
@@ -304,7 +309,7 @@ update config msg model =
             LockEntitiesError ( commandId, error ) ->
                 let
                     errMsg =
-                        logErr ("LockEntitiesError:" +-+ "Command Id:" +-+ commandId +-+ "Error:" +-+ error)
+                        nonFatal commandId ("LockEntitiesError:" +-+ "Error:" +-+ error)
                 in
                     ( model ! [], [ errMsg, config.lockEntitiesErrorTagger ( commandId, error ) ] )
 
@@ -318,7 +323,7 @@ update config msg model =
             BeginError commandId statement ( connectionId, error ) ->
                 let
                     errMsg =
-                        logErr ("BeginError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
+                        nonFatal commandId ("BeginError:" +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
                     ( model ! [], [ errMsg, config.writeEventsErrorTagger ( commandId, error ) ] )
 
@@ -335,7 +340,7 @@ update config msg model =
                         Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId True
 
                     errMsg =
-                        logErr ("CommitError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
+                        nonFatal commandId ("CommitError:" +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
                     ( model ! [], [ errMsg, config.commitErrorTagger ( commandId, error ) ] )
 
@@ -352,35 +357,59 @@ update config msg model =
                         Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId True
 
                     errMsg =
-                        logErr ("RollbackError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
+                        nonFatal commandId ("RollbackError:" +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
                     ( model ! [], [ errMsg, config.rollbackErrorTagger ( commandId, error ) ] )
 
             WriteEvents commandId statement ( connectionId, results ) ->
                 let
-                    eventRows =
+                    ( eventRows, errorMsg ) =
                         List.head results
                             |?> (\result ->
                                     JD.decodeString insertEventsResponseDecoder result
-                                        |??> (\response -> response.insert_events)
-                                        ??= (\err -> Debug.crash ("SQL insert_events Command results could not be decoded for CommandId:" +-+ commandId +++ ". Error:" +-+ err))
+                                        |??> (\response -> ( response.insert_events, "" ))
+                                        ??= (\err -> ( -1, "SQL insert_events Command results could not be decoded. Error:" +-+ err ))
                                 )
-                            ?!= (\_ -> Debug.crash ("SQL Insert Events Command results list is  for CommandId:" +-+ commandId))
+                            ?!= (\_ -> ( -1, "SQL Insert Events Command results list is EMPTY" ))
                 in
-                    ( model ! [], [ config.writeEventsTagger ( commandId, eventRows ) ] )
+                    ( model ! []
+                    , [ (errorMsg /= "") ? ( fatal commandId errorMsg, config.writeEventsTagger ( commandId, eventRows ) )
+                      ]
+                    )
 
             WriteEventsError commandId statement ( connectionId, error ) ->
                 let
                     errMsg =
-                        logErr ("WriteEventsError:" +-+ "Command Id:" +-+ commandId +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
+                        nonFatal commandId ("WriteEventsError:" +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
                     ( model ! [], [ errMsg, config.writeEventsErrorTagger ( commandId, error ) ] )
 
-            LockerError message ->
-                ( model ! [], [ config.errorTagger message ] )
+            LockerError ( errorType, ( commandId, message ) ) ->
+                let
+                    errorHandler =
+                        case errorType of
+                            FatalError ->
+                                fatal
 
-            LockerLog message ->
-                ( model ! [], [ config.logTagger message ] )
+                            NonFatalError ->
+                                nonFatal
+
+                            _ ->
+                                Debug.crash "Unexpected error type"
+                in
+                    ( model ! [], [ errorHandler commandId message ] )
+
+            LockerLog ( logLevel, ( commandId, message ) ) ->
+                let
+                    logHandler =
+                        case logLevel of
+                            LogLevelInfo ->
+                                logMsg
+
+                            _ ->
+                                Debug.crash "Unexpected log level"
+                in
+                    ( model ! [], [ logHandler commandId message ] )
 
             LockerModule msg ->
                 updateLocker msg model
