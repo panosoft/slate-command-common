@@ -52,16 +52,6 @@ entityId2 =
     "31cd9070-9073-415e-889f-dc0278dc7283"
 
 
-delayUpdateMsg : Msg -> Time -> Cmd Msg
-delayUpdateMsg msg delay =
-    Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
-
-
-delayCmd : Cmd Msg -> Time -> Cmd Msg
-delayCmd cmd =
-    delayUpdateMsg <| DoCmd cmd
-
-
 type Msg
     = Nop
     | DoCmd (Cmd Msg)
@@ -127,6 +117,16 @@ init =
             initModel
     in
         model ! (List.append cmds [ delayUpdateMsg InitCommandStart (1 * second) ])
+
+
+delayUpdateMsg : Msg -> Time -> Cmd Msg
+delayUpdateMsg msg delay =
+    Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
+
+
+delayCmd : Cmd Msg -> Time -> Cmd Msg
+delayCmd cmd =
+    delayUpdateMsg <| DoCmd cmd
 
 
 main : Program Never

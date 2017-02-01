@@ -53,22 +53,6 @@ type alias InsertEventsResponse =
     }
 
 
-insertEventsResponseDecoder : JD.Decoder InsertEventsResponse
-insertEventsResponseDecoder =
-    JD.succeed InsertEventsResponse
-        <|| ("insert_events" := int)
-
-
-delayUpdateMsg : Msg -> Time -> Cmd Msg
-delayUpdateMsg msg delay =
-    Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
-
-
-delayCmd : Cmd Msg -> Time -> Cmd Msg
-delayCmd cmd =
-    delayUpdateMsg <| DoCmd cmd
-
-
 {-|
     Postgres connection config
 -}
@@ -243,6 +227,22 @@ init tagger =
             initModel
     in
         model ! (List.map (Cmd.map tagger) cmds)
+
+
+insertEventsResponseDecoder : JD.Decoder InsertEventsResponse
+insertEventsResponseDecoder =
+    JD.succeed InsertEventsResponse
+        <|| ("insert_events" := int)
+
+
+delayUpdateMsg : Msg -> Time -> Cmd Msg
+delayUpdateMsg msg delay =
+    Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
+
+
+delayCmd : Cmd Msg -> Time -> Cmd Msg
+delayCmd cmd =
+    delayUpdateMsg <| DoCmd cmd
 
 
 {-|

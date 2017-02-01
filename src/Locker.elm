@@ -91,6 +91,11 @@ type alias Model =
     }
 
 
+init : (Msg -> msg) -> ( Model, Cmd msg )
+init tagger =
+    ({ lockRequests = Dict.empty } ! [])
+
+
 beginTrans : CommandId -> ConnectionId -> Int -> Cmd Msg
 beginTrans commandId connectionId retryCount =
     Postgres.query (BeginCommandError commandId) (BeginCommand commandId retryCount) connectionId "BEGIN" 1
@@ -100,11 +105,6 @@ lockResponseDecoder : JD.Decoder LockResponse
 lockResponseDecoder =
     JD.succeed LockResponse
         <|| ("pg_try_advisory_xact_lock" := bool)
-
-
-init : (Msg -> msg) -> ( Model, Cmd msg )
-init tagger =
-    ({ lockRequests = Dict.empty } ! [])
 
 
 update : Config msg -> Msg -> Model -> ( ( Model, Cmd Msg ), List msg )
