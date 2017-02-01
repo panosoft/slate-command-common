@@ -86,6 +86,7 @@ commandHelperConfig : CommandHelper.Config Msg
 commandHelperConfig =
     { pgConnectionConfig = pgConnectionConfig
     , lockRetries = 3
+    , commandHelperTagger = CommandHelperModule
     , errorTagger = CommandHelperError
     , logTagger = CommandHelperLog
     , initCommandTagger = InitCommand
@@ -111,11 +112,11 @@ initModel : ( Model, List (Cmd Msg) )
 initModel =
     let
         ( commandHelperModel, commandHelperCmd ) =
-            CommandHelper.init
+            CommandHelper.init CommandHelperModule
     in
         ( { commandHelperModel = commandHelperModel
           }
-        , [ Cmd.map CommandHelperModule commandHelperCmd ]
+        , [ commandHelperCmd ]
         )
 
 
@@ -186,7 +187,7 @@ update msg model =
                                         ( model.commandHelperModel, Cmd.none )
                                 )
                 in
-                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
+                    { model | commandHelperModel = commandHelperModel } ! [ cmd ]
 
             InitCommand commandId ->
                 let
@@ -194,16 +195,17 @@ update msg model =
                         Debug.log "InitCommand Complete" ("Command Id:  " +-+ commandId)
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.lockEntities model.commandHelperModel commandId [ entityId1, entityId2 ]
+                        CommandHelper.lockEntities commandHelperConfig model.commandHelperModel commandId [ entityId1, entityId2 ]
                             ??= (\err ->
-                                    let
-                                        l =
-                                            Debug.log ("CommandHelper.lockEntities call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                    in
-                                        ( model.commandHelperModel, Cmd.none )
+                                    Debug.crash ("CommandHelper.lockEntities call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- let
+                                 --     l =
+                                 --         Debug.log ("CommandHelper.lockEntities call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- in
+                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
-                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
+                    { model | commandHelperModel = commandHelperModel } ! [ cmd ]
 
             InitCommandError ( commandId, error ) ->
                 let
@@ -223,16 +225,17 @@ update msg model =
                         ]
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.writeEvents model.commandHelperModel commandId events
+                        CommandHelper.writeEvents commandHelperConfig model.commandHelperModel commandId events
                             ??= (\err ->
-                                    let
-                                        l =
-                                            Debug.log ("CommandHelper.writeEvents call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                    in
-                                        ( model.commandHelperModel, Cmd.none )
+                                    Debug.crash ("CommandHelper.writeEvents call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- let
+                                 --     l =
+                                 --         Debug.log ("CommandHelper.writeEvents call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- in
+                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
-                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
+                    { model | commandHelperModel = commandHelperModel } ! [ cmd ]
 
             LockEntitiesError ( commandId, error ) ->
                 let
@@ -240,16 +243,17 @@ update msg model =
                         Debug.log "LockEntities Complete with Error" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.rollback model.commandHelperModel commandId
+                        CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId
                             ??= (\err ->
-                                    let
-                                        l =
-                                            Debug.log ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                    in
-                                        ( model.commandHelperModel, Cmd.none )
+                                    Debug.crash ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- let
+                                 --     l =
+                                 --         Debug.log ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- in
+                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
-                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
+                    { model | commandHelperModel = commandHelperModel } ! [ cmd ]
 
             WriteEvents ( commandId, eventRows ) ->
                 let
@@ -257,16 +261,17 @@ update msg model =
                         Debug.log "WriteEvents Complete" ("Command Id:" +-+ commandId +-+ "Events Inserted:" +-+ eventRows)
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.commit model.commandHelperModel commandId
+                        CommandHelper.commit commandHelperConfig model.commandHelperModel commandId
                             ??= (\err ->
-                                    let
-                                        l =
-                                            Debug.log ("CommandHelper.commit call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                    in
-                                        ( model.commandHelperModel, Cmd.none )
+                                    Debug.crash ("CommandHelper.commit call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- let
+                                 --     l =
+                                 --         Debug.log ("CommandHelper.commit call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- in
+                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
-                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
+                    { model | commandHelperModel = commandHelperModel } ! [ cmd ]
 
             WriteEventsError ( commandId, error ) ->
                 let
@@ -274,16 +279,17 @@ update msg model =
                         Debug.log "WriteEvents Complete with Error" ("Command Id:" +-+ commandId +-+ "Error:" +-+ error)
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.rollback model.commandHelperModel commandId
+                        CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId
                             ??= (\err ->
-                                    let
-                                        l =
-                                            Debug.log ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                    in
-                                        ( model.commandHelperModel, Cmd.none )
+                                    Debug.crash ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- let
+                                 --     l =
+                                 --         Debug.log ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                 -- in
+                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
-                    { model | commandHelperModel = commandHelperModel } ! [ Cmd.map CommandHelperModule cmd ]
+                    { model | commandHelperModel = commandHelperModel } ! [ cmd ]
 
             Commit commandId ->
                 let

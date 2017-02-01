@@ -20,11 +20,6 @@ import StringUtils exposing (..)
 import List exposing (isEmpty)
 
 
-beginTrans : String
-beginTrans =
-    "BEGIN"
-
-
 type alias CommandId =
     Int
 
@@ -48,15 +43,13 @@ type alias LockResponse =
     }
 
 
-lockResponseDecoder : JD.Decoder LockResponse
-lockResponseDecoder =
-    JD.succeed LockResponse
-        <|| ("pg_try_advisory_xact_lock" := bool)
-
-
 {-|
 parent msg taggers
 -}
+type alias LockerTagger msg =
+    Msg -> msg
+
+
 type alias ErrorTagger msg =
     ( ErrorType, ( CommandId, String ) ) -> msg
 
@@ -75,6 +68,7 @@ type alias LockEntitiesErrorTagger msg =
 
 type alias Config msg =
     { retries : Int
+    , lockerTagger : LockerTagger msg
     , errorTagger : ErrorTagger msg
     , logTagger : LogTagger msg
     , lockEntitiesTagger : LockEntitiesTagger msg
@@ -97,8 +91,19 @@ type alias Model =
     }
 
 
-init : ( Model, Cmd Msg )
-init =
+beginTrans : CommandId -> ConnectionId -> Int -> Cmd Msg
+beginTrans commandId connectionId retryCount =
+    Postgres.query (BeginCommandError commandId) (BeginCommand commandId retryCount) connectionId "BEGIN" 1
+
+
+lockResponseDecoder : JD.Decoder LockResponse
+lockResponseDecoder =
+    JD.succeed LockResponse
+        <|| ("pg_try_advisory_xact_lock" := bool)
+
+
+init : (Msg -> msg) -> ( Model, Cmd msg )
+init tagger =
     ({ lockRequests = Dict.empty } ! [])
 
 
@@ -167,7 +172,7 @@ update config msg model =
 
                     ( cmd, parentMsgs ) =
                         (retryCount <= config.retries)
-                            ? ( ( Postgres.query (BeginCommandError commandId) (BeginCommand commandId (retryCount + 1)) connectionId beginTrans 1
+                            ? ( ( beginTrans commandId connectionId (retryCount + 1)
                                 , [ nonFatal commandId ("lock Command Error:" +-+ "Error:" +-+ "Could not obtains all locks." +-+ "Retry:" +-+ retryCount) ]
                                 )
                               , ( Cmd.none
@@ -191,8 +196,8 @@ update config msg model =
 {-|
     API
 -}
-lock : Model -> CommandId -> ConnectionId -> List Guid -> ( Model, Cmd Msg )
-lock model commandId connectionId guids =
+lock : Config msg -> Model -> CommandId -> ConnectionId -> List Guid -> ( Model, Cmd msg )
+lock config model commandId connectionId guids =
     let
         locks =
             createLocks guids
@@ -201,7 +206,7 @@ lock model commandId connectionId guids =
             Dict.insert connectionId (LockState guids locks) model.lockRequests
     in
         ( { model | lockRequests = lockRequests }
-        , Postgres.query (BeginCommandError commandId) (BeginCommand commandId 1) connectionId beginTrans 1
+        , Cmd.map config.lockerTagger <| beginTrans commandId connectionId 1
         )
 
 

@@ -11,6 +11,7 @@ module CommandHelper
         , writeEvents
         , commit
         , rollback
+        , createMetaData
         , update
         )
 
@@ -71,6 +72,12 @@ delayCmd cmd =
 {-|
     Postgres connection config
 -}
+
+
+
+{- TODO move out of Config then pass to API -}
+
+
 type alias PGConnectionConfig =
     { host : String
     , port_ : Int
@@ -86,6 +93,16 @@ type alias PGConnectionConfig =
 {-|
     parent msg taggers
 -}
+
+
+
+{- TODO grab the next 2 taggers from services-common-proto -}
+
+
+type alias CommandHelperTagger msg =
+    Msg -> msg
+
+
 type alias ErrorTagger msg =
     ( ErrorType, ( CommandId, String ) ) -> msg
 
@@ -141,6 +158,7 @@ type alias ConnectionLostTagger msg =
 type alias Config msg =
     { pgConnectionConfig : PGConnectionConfig
     , lockRetries : Int
+    , commandHelperTagger : CommandHelperTagger msg
     , errorTagger : ErrorTagger msg
     , logTagger : LogTagger msg
     , initCommandTagger : InitCommandTagger msg
@@ -160,6 +178,7 @@ type alias Config msg =
 lockerConfig : Config msg -> Locker.Config Msg
 lockerConfig config =
     { retries = config.lockRetries
+    , lockerTagger = LockerModule
     , errorTagger = LockerError
     , logTagger = LockerLog
     , lockEntitiesTagger = LockEntities
@@ -204,26 +223,26 @@ initModel : ( Model, List (Cmd Msg) )
 initModel =
     let
         ( lockerModel, lockerCmd ) =
-            Locker.init
+            Locker.init LockerModule
     in
         ( { commandIds = Dict.empty
           , nextCommandId = 0
           , lockerModel = lockerModel
           }
-        , [ Cmd.map LockerModule lockerCmd ]
+        , [ lockerCmd ]
         )
 
 
 {-|
     initialize command helper
 -}
-init : ( Model, Cmd Msg )
-init =
+init : (Msg -> msg) -> ( Model, Cmd msg )
+init tagger =
     let
         ( model, cmds ) =
             initModel
     in
-        model ! (cmds)
+        model ! (List.map (Cmd.map tagger) cmds)
 
 
 {-|
@@ -418,84 +437,57 @@ update config msg model =
 {-|
     API
 -}
-initCommand : Config msg -> Model -> Result String ( Model, Cmd Msg )
+initCommand : Config msg -> Model -> Result String ( Model, Cmd msg )
 initCommand config model =
     Ok
         ( { model | nextCommandId = model.nextCommandId + 1 }
-        , connectCmd config model.nextCommandId 1
+        , Cmd.map config.commandHelperTagger <| connectCmd config model.nextCommandId 1
         )
 
 
-lockEntities : Model -> CommandId -> List String -> Result String ( Model, Cmd Msg )
-lockEntities model commandId entities =
+lockEntities : Config msg -> Model -> CommandId -> List String -> Result String ( Model, Cmd msg )
+lockEntities config model commandId entities =
     let
-        maybeConnectionId =
-            Dict.get commandId model.commandIds
+        lock connectionId =
+            let
+                -- Sort entities to fail earlier
+                ( lockerModel, cmd ) =
+                    Locker.lock (lockerConfig config) model.lockerModel commandId connectionId (List.sort entities)
+            in
+                ( { model | lockerModel = lockerModel }, Cmd.map config.commandHelperTagger cmd )
     in
-        case maybeConnectionId of
-            Just connectionId ->
-                let
-                    ( lockerModel, cmd ) =
-                        Locker.lock model.lockerModel commandId connectionId entities
-                in
-                    Ok ( { model | lockerModel = lockerModel }, Cmd.map LockerModule cmd )
-
-            Nothing ->
-                Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
+        Dict.get commandId model.commandIds
+            |?> (\connectionId -> Ok <| lock connectionId)
+            ?= badCommandId commandId
 
 
-writeEvents : Model -> CommandId -> List String -> Result String ( Model, Cmd Msg )
-writeEvents model commandId events =
+writeEvents : Config msg -> Model -> CommandId -> List String -> Result String ( Model, Cmd msg )
+writeEvents config model commandId events =
     let
-        maybeConnectionId =
-            Dict.get commandId model.commandIds
+        writeEventsCmd commandId connectionId events =
+            let
+                statement =
+                    insertEventsStatement events
+            in
+                Cmd.map config.commandHelperTagger <| Postgres.query (BeginError commandId statement) (Begin commandId statement) connectionId "BEGIN" 1
     in
-        case maybeConnectionId of
-            Just connectionId ->
-                let
-                    cmd =
-                        writeEventsCmd commandId connectionId events
-                in
-                    Ok ( model, cmd )
-
-            Nothing ->
-                Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
+        Dict.get commandId model.commandIds
+            |?> (\connectionId -> Ok ( model, (writeEventsCmd commandId connectionId events) ))
+            ?= badCommandId commandId
 
 
-commit : Model -> CommandId -> Result String ( Model, Cmd Msg )
-commit model commandId =
-    let
-        maybeConnectionId =
-            Dict.get commandId model.commandIds
-    in
-        case maybeConnectionId of
-            Just connectionId ->
-                let
-                    cmd =
-                        Postgres.query (CommitError commandId) (Commit commandId) connectionId "COMMIT" 1
-                in
-                    Ok ( model, cmd )
-
-            Nothing ->
-                Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
+commit : Config msg -> Model -> CommandId -> Result String ( Model, Cmd msg )
+commit config model commandId =
+    Dict.get commandId model.commandIds
+        |?> (\connectionId -> Ok ( model, (Cmd.map config.commandHelperTagger <| Postgres.query (CommitError commandId) (Commit commandId) connectionId "COMMIT" 1) ))
+        ?= badCommandId commandId
 
 
-rollback : Model -> CommandId -> Result String ( Model, Cmd Msg )
-rollback model commandId =
-    let
-        maybeConnectionId =
-            Dict.get commandId model.commandIds
-    in
-        case maybeConnectionId of
-            Just connectionId ->
-                let
-                    cmd =
-                        Postgres.query (RollbackError commandId) (Rollback commandId) connectionId "ROLLBACK" 1
-                in
-                    Ok ( model, cmd )
-
-            Nothing ->
-                Err <| "CommandId:  " ++ (toString commandId) ++ " doesn't exist"
+rollback : Config msg -> Model -> CommandId -> Result String ( Model, Cmd msg )
+rollback config model commandId =
+    Dict.get commandId model.commandIds
+        |?> (\connectionId -> Ok ( model, (Cmd.map config.commandHelperTagger <| Postgres.query (RollbackError commandId) (Rollback commandId) connectionId "ROLLBACK" 1) ))
+        ?= badCommandId commandId
 
 
 createMetaData : String -> String -> Metadata
@@ -504,36 +496,34 @@ createMetaData initiatorId command =
 
 
 {-|
-
+    Helpers
 -}
-writeEventsCmd : CommandId -> ConnectionId -> List String -> Cmd Msg
-writeEventsCmd commandId connectionId events =
-    let
-        statement =
-            insertEventsStatement events
-    in
-        Postgres.query (BeginError commandId statement) (Begin commandId statement) connectionId "BEGIN" 1
+badCommandId : CommandId -> Result String x
+badCommandId commandId =
+    Err <| "CommandId:" +-+ commandId +-+ "doesn't exist"
 
 
 insertEventsStatement : List String -> String
 insertEventsStatement events =
     let
-        createEvents totalEvents event newEvents =
+        createEvents event newEvents =
             let
                 i =
-                    totalEvents - List.length newEvents
+                    List.length events - List.length newEvents
             in
                 "($1[" +++ i +++ "]," +++ "$2,'" +++ event +++ "')" :: newEvents
 
         newEventList =
-            String.join "," <| List.foldr (createEvents <| List.length events) [] events
+            events
+                |> List.foldr createEvents []
+                |> String.join ","
     in
         "SELECT insert_events($$" +++ newEventList +++ "$$)"
 
 
 connectCmd : Config msg -> CommandId -> Int -> Cmd Msg
-connectCmd config commandId retries =
-    Postgres.connect (PGConnectError commandId retries)
+connectCmd config commandId retryCount =
+    Postgres.connect (PGConnectError commandId retryCount)
         (PGConnect commandId)
         (PGConnectionLost commandId)
         config.pgConnectionConfig.connectTimeout
