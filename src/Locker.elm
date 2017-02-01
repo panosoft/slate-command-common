@@ -24,12 +24,8 @@ type alias CommandId =
     Int
 
 
-type alias Guid =
-    String
-
-
 type alias LockState =
-    { guids : List Guid
+    { entityIds : List String
     , locks : List Int
     }
 
@@ -196,14 +192,14 @@ update config msg model =
 {-|
     API
 -}
-lock : Config msg -> Model -> CommandId -> ConnectionId -> List Guid -> ( Model, Cmd msg )
-lock config model commandId connectionId guids =
+lock : Config msg -> Model -> CommandId -> ConnectionId -> List String -> ( Model, Cmd msg )
+lock config model commandId connectionId entityIds =
     let
         locks =
-            createLocks guids
+            createLocks entityIds
 
         lockRequests =
-            Dict.insert connectionId (LockState guids locks) model.lockRequests
+            Dict.insert connectionId (LockState entityIds locks) model.lockRequests
     in
         ( { model | lockRequests = lockRequests }
         , Cmd.map config.lockerTagger <| beginTrans commandId connectionId 1
@@ -213,9 +209,9 @@ lock config model commandId connectionId guids =
 {-|
     Helpers
 -}
-createLocks : List Guid -> List Int
-createLocks guids =
-    List.map (\guid -> FNV.hashString guid) guids
+createLocks : List String -> List Int
+createLocks entityIds =
+    List.map (\guid -> FNV.hashString guid) entityIds
 
 
 processNextLock : Config msg -> Model -> CommandId -> ConnectionId -> Int -> ( ( Model, Cmd Msg ), List msg )
@@ -238,7 +234,7 @@ retryLocks : Config msg -> Model -> CommandId -> ConnectionId -> Int -> ( ( Mode
 retryLocks config model commandId connectionId retryCount =
     Dict.get connectionId model.lockRequests
         |?> (\lockState ->
-                ( { model | lockRequests = Dict.insert connectionId { lockState | locks = createLocks lockState.guids } model.lockRequests }
+                ( { model | lockRequests = Dict.insert connectionId { lockState | locks = createLocks lockState.entityIds } model.lockRequests }
                     ! [ Postgres.query (RollbackError commandId) (Rollback commandId retryCount) connectionId "ROLLBACK" 1 ]
                 , []
                 )
