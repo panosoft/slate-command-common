@@ -198,11 +198,6 @@ update msg model =
                         CommandHelper.lockEntities commandHelperConfig model.commandHelperModel commandId [ entityId1, entityId2 ]
                             ??= (\err ->
                                     Debug.crash ("CommandHelper.lockEntities call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- let
-                                 --     l =
-                                 --         Debug.log ("CommandHelper.lockEntities call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- in
-                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
                     { model | commandHelperModel = commandHelperModel } ! [ cmd ]
@@ -228,11 +223,6 @@ update msg model =
                         CommandHelper.writeEvents commandHelperConfig model.commandHelperModel commandId events
                             ??= (\err ->
                                     Debug.crash ("CommandHelper.writeEvents call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- let
-                                 --     l =
-                                 --         Debug.log ("CommandHelper.writeEvents call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- in
-                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
                     { model | commandHelperModel = commandHelperModel } ! [ cmd ]
@@ -246,11 +236,6 @@ update msg model =
                         CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId
                             ??= (\err ->
                                     Debug.crash ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- let
-                                 --     l =
-                                 --         Debug.log ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- in
-                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
                     { model | commandHelperModel = commandHelperModel } ! [ cmd ]
@@ -264,11 +249,6 @@ update msg model =
                         CommandHelper.commit commandHelperConfig model.commandHelperModel commandId
                             ??= (\err ->
                                     Debug.crash ("CommandHelper.commit call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- let
-                                 --     l =
-                                 --         Debug.log ("CommandHelper.commit call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- in
-                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
                     { model | commandHelperModel = commandHelperModel } ! [ cmd ]
@@ -282,11 +262,6 @@ update msg model =
                         CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId
                             ??= (\err ->
                                     Debug.crash ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- let
-                                 --     l =
-                                 --         Debug.log ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
-                                 -- in
-                                 --     ( model.commandHelperModel, Cmd.none )
                                 )
                 in
                     { model | commandHelperModel = commandHelperModel } ! [ cmd ]
