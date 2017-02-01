@@ -446,13 +446,13 @@ initCommand config model =
 
 
 lockEntities : Config msg -> Model -> CommandId -> List String -> Result String ( Model, Cmd msg )
-lockEntities config model commandId entities =
+lockEntities config model commandId entityIds =
     let
         lock connectionId =
             let
                 -- Sort entities to fail earlier
                 ( lockerModel, cmd ) =
-                    Locker.lock (lockerConfig config) model.lockerModel commandId connectionId (List.sort entities)
+                    Locker.lock (lockerConfig config) model.lockerModel commandId connectionId (List.sort entityIds)
             in
                 ( { model | lockerModel = lockerModel }, Cmd.map config.commandHelperTagger cmd )
     in
