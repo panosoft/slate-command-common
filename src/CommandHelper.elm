@@ -6,14 +6,20 @@ module CommandHelper
         , CommandId
         , PGConnectionConfig
         , init
+        , update
         , initCommand
         , lockEntities
         , writeEvents
         , commit
         , rollback
         , createMetaData
-        , update
         )
+
+{-|
+    Helper functions for writing Slate Entity APIs.
+
+@docs Msg , Model , Config , CommandId , PGConnectionConfig , init , update , initCommand , lockEntities , writeEvents , commit , rollback , createMetaData
+-}
 
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
@@ -39,6 +45,9 @@ type alias Metadata =
     }
 
 
+{-|
+    CommandId type.
+-}
 type alias CommandId =
     Int
 
@@ -94,50 +103,86 @@ type alias LogTagger msg =
     ( LogLevel, ( CommandId, String ) ) -> msg
 
 
+{-|
+    Tagger for parent indicating initCommand succeeded.
+-}
 type alias InitCommandTagger msg =
     CommandId -> msg
 
 
+{-|
+    Tagger for parent indicating initCommand had error.
+-}
 type alias InitCommandErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
+{-|
+    Tagger for parent indicating lockEntities succeeded.
+-}
 type alias LockEntitiesTagger msg =
     CommandId -> msg
 
 
+{-|
+    Tagger for parent indicating lockEntities had error.
+-}
 type alias LockEntitiesErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
+{-|
+    Tagger for parent indicating writeEvents succeeded.
+-}
 type alias WriteEventsTagger msg =
     ( CommandId, Int ) -> msg
 
 
+{-|
+    Tagger for parent indicating writeEvents had error.
+-}
 type alias WriteEventsErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
+{-|
+    Tagger for parent indicating commit succeeded.
+-}
 type alias CommitTagger msg =
     CommandId -> msg
 
 
+{-|
+    Tagger for parent indicating commit had error.
+-}
 type alias CommitErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
+{-|
+    Tagger for parent indicating rollback succeeded.
+-}
 type alias RollbackTagger msg =
     CommandId -> msg
 
 
+{-|
+    Tagger for parent indicating rollback had error.
+-}
 type alias RollbackErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
+{-|
+    Tagger for parent indicating database connection was closed unexpectedly.
+-}
 type alias ConnectionLostTagger msg =
     ( CommandId, String ) -> msg
 
 
+{-|
+    CommandHelper Config.
+-}
 type alias Config msg =
     { pgConnectionConfig : PGConnectionConfig
     , lockRetries : Int
@@ -177,7 +222,7 @@ retryConfig =
 
 
 {-|
-    Msg
+    CommandHelper Msgs
 -}
 type Msg
     = Nop
@@ -204,6 +249,9 @@ type Msg
     | RetryModule (Retry.Msg Msg)
 
 
+{-|
+    CommandHelper Config.
+-}
 type alias Model =
     { commandIds : CommandIdDict
     , nextCommandId : CommandId
@@ -469,7 +517,11 @@ update config msg model =
 
 
 {-|
+
     API
+
+
+    initCommand
 -}
 initCommand : Config msg -> Model -> Result String ( Model, Cmd msg )
 initCommand config model =
@@ -483,6 +535,9 @@ initCommand config model =
             )
 
 
+{-|
+    lockEntities
+-}
 lockEntities : Config msg -> Model -> CommandId -> List String -> Result String ( Model, Cmd msg )
 lockEntities config model commandId entityIds =
     let
@@ -499,6 +554,9 @@ lockEntities config model commandId entityIds =
             ?= badCommandId commandId
 
 
+{-|
+    writeEvents
+-}
 writeEvents : Config msg -> Model -> CommandId -> List String -> Result String ( Model, Cmd msg )
 writeEvents config model commandId events =
     let
@@ -514,6 +572,9 @@ writeEvents config model commandId events =
             ?= badCommandId commandId
 
 
+{-|
+    commit
+-}
 commit : Config msg -> Model -> CommandId -> Result String ( Model, Cmd msg )
 commit config model commandId =
     Dict.get commandId model.commandIds
@@ -521,6 +582,9 @@ commit config model commandId =
         ?= badCommandId commandId
 
 
+{-|
+    rollback
+-}
 rollback : Config msg -> Model -> CommandId -> Result String ( Model, Cmd msg )
 rollback config model commandId =
     Dict.get commandId model.commandIds
@@ -528,6 +592,9 @@ rollback config model commandId =
         ?= badCommandId commandId
 
 
+{-|
+    createMetaData
+-}
 createMetaData : String -> String -> Metadata
 createMetaData initiatorId command =
     { initiatorId = initiatorId, command = command }
