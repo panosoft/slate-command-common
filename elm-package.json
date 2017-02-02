@@ -1,8 +1,8 @@
 {
     "version": "1.0.0",
-    "summary": "helpful summary of your project, less than 80 characters",
-    "repository": "https://github.com/panosoft/slate-command-helper.git",
-    "license": "BSD3",
+    "summary": "Slate common command processor modules",
+    "repository": "https://github.com/panosoft/slate-command-common.git",
+    "license": "Unlicense",
     "source-directories": [
         "src"
     ],
@@ -14,7 +14,8 @@
         "panosoft/elm-string-utils": "1.0.0 <= v < 2.0.0",
         "panosoft/elm-parent-child-update": "1.0.0 <= v < 2.0.0",
         "panosoft/elm-utils": "1.0.0 <= v < 2.0.0",
-        "panosoft/elm-postgres": "3.0.0 <= v < 4.0.0"
+        "panosoft/elm-postgres": "3.0.0 <= v < 4.0.0",
+        "panosoft/elm-retry": "1.0.0 <= v <= 1.0.0"
     },
     "elm-version": "0.17.1 <= v < 0.18.0"
 }
