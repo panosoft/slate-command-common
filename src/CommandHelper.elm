@@ -12,13 +12,13 @@ module CommandHelper
         , writeEvents
         , commit
         , rollback
-        , createMetaData
+        , createMetadata
         )
 
 {-|
     Helper functions for writing Slate Entity APIs.
 
-@docs Msg , Model , Config , CommandId , PGConnectionConfig , init , update , initCommand , lockEntities , writeEvents , commit , rollback , createMetaData
+@docs Msg , Model , Config , CommandId , PGConnectionConfig , init , update , initCommand , lockEntities , writeEvents , commit , rollback , createMetadata
 -}
 
 import Dict exposing (Dict)
@@ -593,10 +593,10 @@ rollback config model commandId =
 
 
 {-|
-    createMetaData
+    createMetadata
 -}
-createMetaData : String -> String -> Metadata
-createMetaData initiatorId command =
+createMetadata : String -> String -> Metadata
+createMetadata initiatorId command =
     { initiatorId = initiatorId, command = command }
 
 
