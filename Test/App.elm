@@ -7,7 +7,7 @@ import Process
 import Task exposing (Task)
 import Json.Encode as JE
 import StringUtils exposing ((+-+), (+++))
-import CommandHelper
+import Slate.CommandHelper as CommandHelper
 import ParentChildUpdate exposing (..)
 import Utils.Ops exposing (..)
 import Utils.Error exposing (..)

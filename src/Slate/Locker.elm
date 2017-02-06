@@ -1,4 +1,4 @@
-module Locker
+module Slate.Locker
     exposing
         ( Config
         , Model

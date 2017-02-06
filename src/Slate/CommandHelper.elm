@@ -1,4 +1,4 @@
-module CommandHelper
+module Slate.CommandHelper
     exposing
         ( Msg
         , Model
@@ -24,7 +24,7 @@ import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
 import String exposing (join)
 import StringUtils exposing ((+-+), (+++))
-import Locker exposing (..)
+import Slate.Locker as Locker exposing (..)
 import Postgres exposing (..)
 import ParentChildUpdate exposing (..)
 import Utils.Json exposing ((<||))
