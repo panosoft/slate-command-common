@@ -523,8 +523,8 @@ rollback config model commandId =
     createMetadata
 -}
 createMetadata : String -> String -> Metadata
-createMetadata initiatorId command =
-    { initiatorId = initiatorId, command = command }
+createMetadata command initiatorId =
+    { command = command, initiatorId = initiatorId }
 
 
 {-|

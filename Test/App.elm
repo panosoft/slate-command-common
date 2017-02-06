@@ -13,6 +13,7 @@ import Utils.Ops exposing (..)
 import Utils.Error exposing (..)
 import Utils.Log exposing (..)
 import Slate.Common.Db exposing (..)
+import Slate.Common.Event exposing (Metadata)
 import DebugF exposing (..)
 
 
@@ -205,8 +206,8 @@ update msg model =
                         Debug.log "LockEntities Complete" ("Command Id:  " +-+ commandId)
 
                     events =
-                        [ encodeEvent "User Created" entityId1 "Create User" "64194fcb-bf87-40c2-bee7-3a86f0110840"
-                        , encodeEvent "User Created" entityId2 "Create User" "d2a1cf24-dc3a-45d6-8310-1fb6eb184d1b"
+                        [ encodeEvent "User Created" entityId1 <| CommandHelper.createMetadata "Create User" "64194fcb-bf87-40c2-bee7-3a86f0110840"
+                        , encodeEvent "User Created" entityId2 <| CommandHelper.createMetadata "Create User" "d2a1cf24-dc3a-45d6-8310-1fb6eb184d1b"
                         ]
 
                     ( commandHelperModel, cmd ) =
@@ -300,11 +301,11 @@ subscriptions model =
     Sub.none
 
 
-encodeEvent : String -> String -> String -> String -> String
-encodeEvent name entityId command initiatorId =
+encodeEvent : String -> String -> Metadata -> String
+encodeEvent name entityId metadata =
     JE.encode 0 <|
         JE.object
             [ ( "name", JE.string name )
             , ( "data", JE.object [ ( "entityId", JE.string entityId ) ] )
-            , ( "metadata", JE.object [ ( "command", JE.string command ), ( "initiatorId", JE.string initiatorId ) ] )
+            , ( "metadata", JE.object [ ( "command", JE.string metadata.command ), ( "initiatorId", JE.string metadata.initiatorId ) ] )
             ]
