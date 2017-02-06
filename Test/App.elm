@@ -12,6 +12,7 @@ import ParentChildUpdate exposing (..)
 import Utils.Ops exposing (..)
 import Utils.Error exposing (..)
 import Utils.Log exposing (..)
+import Slate.Common.Db exposing (..)
 import DebugF exposing (..)
 
 
@@ -19,19 +20,6 @@ port exitApp : Float -> Cmd msg
 
 
 port externalStop : (() -> msg) -> Sub msg
-
-
-pgConnectionConfig : CommandHelper.PGConnectionConfig
-pgConnectionConfig =
-    { host = "localPGDbServer"
-    , port_ = 5432
-    , database = "parallelsTest"
-    , user = "parallels"
-    , password = "parallelspw"
-    , connectTimeout = 5000
-    , retries = 3
-    , reconnectDelayInterval = 7 * second
-    }
 
 
 entityId1 : String
@@ -64,10 +52,20 @@ type Msg
     | CommandHelperModule CommandHelper.Msg
 
 
+dbConnectionInfo : DbConnectionInfo
+dbConnectionInfo =
+    { host = "localPGDbServer"
+    , port_ = 5432
+    , database = "parallelsTest"
+    , user = "parallels"
+    , password = "parallelspw"
+    , timeout = 5000
+    }
+
+
 commandHelperConfig : CommandHelper.Config Msg
 commandHelperConfig =
-    { pgConnectionConfig = pgConnectionConfig
-    , lockRetries = 3
+    { lockRetries = 3
     , commandHelperTagger = CommandHelperModule
     , errorTagger = CommandHelperError
     , logTagger = CommandHelperLog
@@ -170,7 +168,7 @@ update msg model =
                         Debug.log "InitCommandStart" "Calling CommandHelper.initCommand"
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.initCommand commandHelperConfig model.commandHelperModel
+                        CommandHelper.initCommand commandHelperConfig model.commandHelperModel dbConnectionInfo
                             ??= (\err ->
                                     let
                                         l =

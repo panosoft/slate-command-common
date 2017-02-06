@@ -4,7 +4,6 @@ module CommandHelper
         , Model
         , Config
         , CommandId
-        , PGConnectionConfig
         , init
         , update
         , initCommand
@@ -18,12 +17,11 @@ module CommandHelper
 {-|
     Helper functions for writing Slate Entity APIs.
 
-@docs Msg , Model , Config , CommandId , PGConnectionConfig , init , update , initCommand , lockEntities , writeEvents , commit , rollback , createMetadata
+@docs Msg , Model , Config , CommandId  , init , update , initCommand , lockEntities , writeEvents , commit , rollback , createMetadata
 -}
 
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
-import Time exposing (Time, second)
 import String exposing (join)
 import StringUtils exposing ((+-+), (+++))
 import Locker exposing (..)
@@ -35,6 +33,7 @@ import Utils.Error exposing (..)
 import Utils.Log exposing (..)
 import Retry exposing (..)
 import Slate.Common.Event exposing (Metadata)
+import Slate.Common.Db exposing (..)
 import Services.Common.Taggers exposing (..)
 
 
@@ -51,27 +50,6 @@ type alias CommandIdDict =
 
 type alias InsertEventsResponse =
     { insert_events : Int
-    }
-
-
-{-|
-    Postgres connection config
--}
-
-
-
-{- TODO move out of Config then pass to API -}
-
-
-type alias PGConnectionConfig =
-    { host : String
-    , port_ : Int
-    , database : String
-    , user : String
-    , password : String
-    , connectTimeout : Int
-    , retries : Int
-    , reconnectDelayInterval : Time
     }
 
 
@@ -163,8 +141,7 @@ type alias ConnectionLostTagger msg =
     CommandHelper Config.
 -}
 type alias Config msg =
-    { pgConnectionConfig : PGConnectionConfig
-    , lockRetries : Int
+    { lockRetries : Int
     , commandHelperTagger : CommandHelperTagger msg
     , errorTagger : ErrorTagger String msg
     , logTagger : LogTagger String msg
@@ -473,11 +450,11 @@ update config msg model =
 
     initCommand
 -}
-initCommand : Config msg -> Model -> Result String ( Model, Cmd msg )
-initCommand config model =
+initCommand : Config msg -> Model -> DbConnectionInfo -> Result String ( Model, Cmd msg )
+initCommand config model dbConnectionInfo =
     let
         ( retryModel, retryCmd ) =
-            Retry.retry model.retryModel RetryModule (PGConnectError model.nextCommandId) RetryCmd (connectCmd config model.nextCommandId)
+            Retry.retry model.retryModel RetryModule (PGConnectError model.nextCommandId) RetryCmd (connectCmd dbConnectionInfo model.nextCommandId)
     in
         Ok
             ( { model | retryModel = retryModel, nextCommandId = model.nextCommandId + 1 }
@@ -576,14 +553,14 @@ insertEventsStatement events =
         "SELECT insert_events($$" +++ newEventList +++ "$$)"
 
 
-connectCmd : Config msg -> CommandId -> FailureTagger ( ConnectionId, String ) Msg -> Cmd Msg
-connectCmd config commandId failureTagger =
+connectCmd : DbConnectionInfo -> CommandId -> FailureTagger ( ConnectionId, String ) Msg -> Cmd Msg
+connectCmd dbConnectionInfo commandId failureTagger =
     Postgres.connect failureTagger
         (PGConnect commandId)
         (PGConnectionLost commandId)
-        config.pgConnectionConfig.connectTimeout
-        config.pgConnectionConfig.host
-        config.pgConnectionConfig.port_
-        config.pgConnectionConfig.database
-        config.pgConnectionConfig.user
-        config.pgConnectionConfig.password
+        dbConnectionInfo.timeout
+        dbConnectionInfo.host
+        dbConnectionInfo.port_
+        dbConnectionInfo.database
+        dbConnectionInfo.user
+        dbConnectionInfo.password
