@@ -5,28 +5,20 @@ import Html.App
 import Time exposing (Time, second)
 import Process
 import Task exposing (Task)
+import Json.Encode as JE
+import StringUtils exposing ((+-+), (+++))
 import CommandHelper
 import ParentChildUpdate exposing (..)
-import StringUtils exposing ((+-+), (+++))
 import Utils.Ops exposing (..)
 import Utils.Error exposing (..)
 import Utils.Log exposing (..)
-import Json.Encode as JE
+import DebugF exposing (..)
 
 
 port exitApp : Float -> Cmd msg
 
 
 port externalStop : (() -> msg) -> Sub msg
-
-
-{-|
-    TODO Remove this and import it from slate-common.
--}
-type alias Metadata =
-    { initiatorId : String
-    , command : String
-    }
 
 
 pgConnectionConfig : CommandHelper.PGConnectionConfig
@@ -55,8 +47,8 @@ entityId2 =
 type Msg
     = Nop
     | DoCmd (Cmd Msg)
-    | CommandHelperError ( ErrorType, ( CommandHelper.CommandId, String ) )
-    | CommandHelperLog ( LogLevel, ( CommandHelper.CommandId, String ) )
+    | CommandHelperError ( ErrorType, String )
+    | CommandHelperLog ( LogLevel, String )
     | InitCommandStart
     | InitCommand CommandHelper.CommandId
     | InitCommandError ( CommandHelper.CommandId, String )
@@ -158,7 +150,7 @@ update msg model =
                     l =
                         case errorType of
                             NonFatalError ->
-                                Debug.log "CommandHelperError" details
+                                DebugF.log "CommandHelperError" details
 
                             _ ->
                                 Debug.crash <| toString details
@@ -168,7 +160,7 @@ update msg model =
             CommandHelperLog ( logLevel, details ) ->
                 let
                     l =
-                        Debug.log "CommandHelperLog" (toString logLevel ++ ":" +-+ details)
+                        DebugF.log "CommandHelperLog" (toString logLevel ++ ":" +-+ details)
                 in
                     model ! []
 
