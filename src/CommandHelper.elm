@@ -170,10 +170,11 @@ lockerConfig config =
     }
 
 
-retryConfig : Retry.Config
+retryConfig : Retry.Config Msg
 retryConfig =
     { retryMax = 3
     , delayNext = Retry.constantDelay 5000
+    , routeToMeTagger = RetryModule
     }
 
 
@@ -200,7 +201,7 @@ type Msg
     | LockerError ( ErrorType, ( CommandId, String ) )
     | LockerLog ( LogLevel, ( CommandId, String ) )
     | LockerModule Locker.Msg
-    | RetryCmd Int Msg (Cmd Msg)
+    | RetryConnectCmd Int Msg (Cmd Msg)
     | RetryModule (Retry.Msg Msg)
 
 
@@ -267,7 +268,7 @@ update config msg model =
             ParentChildUpdate.updateChildParent (Locker.update <| lockerConfig config) (update config) .lockerModel LockerModule (\model lockerModel -> { model | lockerModel = lockerModel })
 
         updateRetry =
-            ParentChildUpdate.updateChildParent (Retry.update retryConfig) (update config) .retryModel RetryModule (\model retryModel -> { model | retryModel = retryModel })
+            ParentChildUpdate.updateChildParent (Retry.update retryConfig) (update config) .retryModel retryConfig.routeToMeTagger (\model retryModel -> { model | retryModel = retryModel })
     in
         case msg of
             Nop ->
@@ -427,7 +428,7 @@ update config msg model =
             LockerModule msg ->
                 updateLocker msg model
 
-            RetryCmd retryCount failureMsg cmd ->
+            RetryConnectCmd retryCount failureMsg cmd ->
                 let
                     parentMsg =
                         case failureMsg of
@@ -450,11 +451,11 @@ update config msg model =
 
     initCommand
 -}
-initCommand : Config msg -> Model -> DbConnectionInfo -> Result String ( Model, Cmd msg )
-initCommand config model dbConnectionInfo =
+initCommand : Config msg -> DbConnectionInfo -> Model -> Result String ( Model, Cmd msg )
+initCommand config dbConnectionInfo model =
     let
         ( retryModel, retryCmd ) =
-            Retry.retry model.retryModel RetryModule (PGConnectError model.nextCommandId) RetryCmd (connectCmd dbConnectionInfo model.nextCommandId)
+            Retry.retry retryConfig model.retryModel (PGConnectError model.nextCommandId) RetryConnectCmd (connectCmd dbConnectionInfo model.nextCommandId)
     in
         Ok
             ( { model | retryModel = retryModel, nextCommandId = model.nextCommandId + 1 }
