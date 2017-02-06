@@ -301,11 +301,16 @@ subscriptions model =
     Sub.none
 
 
+encodeMetadata : Metadata -> JE.Value
+encodeMetadata metadata =
+    JE.object [ ( "command", JE.string metadata.command ), ( "initiatorId", JE.string metadata.initiatorId ) ]
+
+
 encodeEvent : String -> String -> Metadata -> String
 encodeEvent name entityId metadata =
     JE.encode 0 <|
         JE.object
             [ ( "name", JE.string name )
             , ( "data", JE.object [ ( "entityId", JE.string entityId ) ] )
-            , ( "metadata", JE.object [ ( "command", JE.string metadata.command ), ( "initiatorId", JE.string metadata.initiatorId ) ] )
+            , ( "metadata", encodeMetadata metadata )
             ]
