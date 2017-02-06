@@ -56,7 +56,7 @@ type alias InsertEventsResponse =
 {-|
     parent msg taggers
 -}
-type alias CommandHelperTagger msg =
+type alias RouteToMeTagger msg =
     Msg -> msg
 
 
@@ -142,7 +142,7 @@ type alias ConnectionLostTagger msg =
 -}
 type alias Config msg =
     { lockRetries : Int
-    , commandHelperTagger : CommandHelperTagger msg
+    , routeToMeTagger : RouteToMeTagger msg
     , errorTagger : ErrorTagger String msg
     , logTagger : LogTagger String msg
     , initCommandTagger : InitCommandTagger msg
@@ -459,7 +459,7 @@ initCommand config dbConnectionInfo model =
     in
         Ok
             ( { model | retryModel = retryModel, nextCommandId = model.nextCommandId + 1 }
-            , Cmd.map config.commandHelperTagger <| retryCmd
+            , Cmd.map config.routeToMeTagger <| retryCmd
             )
 
 
@@ -475,7 +475,7 @@ lockEntities config model commandId entityIds =
                 ( lockerModel, cmd ) =
                     Locker.lock (lockerConfig config) model.lockerModel commandId connectionId (List.sort entityIds)
             in
-                ( { model | lockerModel = lockerModel }, Cmd.map config.commandHelperTagger cmd )
+                ( { model | lockerModel = lockerModel }, Cmd.map config.routeToMeTagger cmd )
     in
         Dict.get commandId model.commandIds
             |?> (\connectionId -> Ok <| lock connectionId)
@@ -493,7 +493,7 @@ writeEvents config model commandId events =
                 statement =
                     insertEventsStatement events
             in
-                Cmd.map config.commandHelperTagger <| Postgres.query (BeginError commandId statement) (Begin commandId statement) connectionId "BEGIN" 1
+                Cmd.map config.routeToMeTagger <| Postgres.query (BeginError commandId statement) (Begin commandId statement) connectionId "BEGIN" 1
     in
         Dict.get commandId model.commandIds
             |?> (\connectionId -> Ok ( model, (writeEventsCmd commandId connectionId events) ))
@@ -506,7 +506,7 @@ writeEvents config model commandId events =
 commit : Config msg -> Model -> CommandId -> Result String ( Model, Cmd msg )
 commit config model commandId =
     Dict.get commandId model.commandIds
-        |?> (\connectionId -> Ok ( model, (Cmd.map config.commandHelperTagger <| Postgres.query (CommitError commandId) (Commit commandId) connectionId "COMMIT" 1) ))
+        |?> (\connectionId -> Ok ( model, (Cmd.map config.routeToMeTagger <| Postgres.query (CommitError commandId) (Commit commandId) connectionId "COMMIT" 1) ))
         ?= badCommandId commandId
 
 
@@ -516,7 +516,7 @@ commit config model commandId =
 rollback : Config msg -> Model -> CommandId -> Result String ( Model, Cmd msg )
 rollback config model commandId =
     Dict.get commandId model.commandIds
-        |?> (\connectionId -> Ok ( model, (Cmd.map config.commandHelperTagger <| Postgres.query (RollbackError commandId) (Rollback commandId) connectionId "ROLLBACK" 1) ))
+        |?> (\connectionId -> Ok ( model, (Cmd.map config.routeToMeTagger <| Postgres.query (RollbackError commandId) (Rollback commandId) connectionId "ROLLBACK" 1) ))
         ?= badCommandId commandId
 
 

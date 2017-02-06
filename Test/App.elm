@@ -67,7 +67,7 @@ dbConnectionInfo =
 commandHelperConfig : CommandHelper.Config Msg
 commandHelperConfig =
     { lockRetries = 3
-    , commandHelperTagger = CommandHelperModule
+    , routeToMeTagger = CommandHelperModule
     , errorTagger = CommandHelperError
     , logTagger = CommandHelperLog
     , initCommandTagger = InitCommand
