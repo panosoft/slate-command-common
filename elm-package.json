@@ -19,6 +19,7 @@
         "panosoft/elm-postgres": "3.0.0 <= v < 4.0.0",
         "panosoft/slate-common": "1.0.0 <= v < 2.0.0",
         "panosoft/services-common": "1.0.0 <= v < 2.0.0",
+        "panosoft/elm-debugf": "1.0.0 <= v < 2.0.0",
         "panosoft/elm-cmd-retry": "1.0.0 <= v < 2.0.0"
     },
     "elm-version": "0.17.1 <= v < 0.18.0"
