@@ -57,7 +57,7 @@ dbConnectionInfo : DbConnectionInfo
 dbConnectionInfo =
     { host = "localPGDbServer"
     , port_ = 5432
-    , database = "parallelsTest"
+    , database = "test_entities"
     , user = "parallels"
     , password = "parallelspw"
     , timeout = 5000
@@ -169,7 +169,7 @@ update msg model =
                         Debug.log "InitCommandStart" "Calling CommandHelper.initCommand"
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.initCommand commandHelperConfig model.commandHelperModel dbConnectionInfo
+                        CommandHelper.initCommand commandHelperConfig dbConnectionInfo model.commandHelperModel
                             ??= (\err ->
                                     let
                                         l =
