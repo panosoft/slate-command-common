@@ -25,24 +25,17 @@ import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
 import Time exposing (Time, second)
 import String exposing (join)
+import StringUtils exposing ((+-+), (+++))
+import Locker exposing (..)
 import Postgres exposing (..)
 import ParentChildUpdate exposing (..)
-import StringUtils exposing ((+-+), (+++))
 import Utils.Json exposing ((<||))
 import Utils.Ops exposing (..)
 import Utils.Error exposing (..)
 import Utils.Log exposing (..)
-import Locker exposing (..)
 import Retry exposing (..)
-
-
-{-|
-    TODO Remove this and import it from slate-common.
--}
-type alias Metadata =
-    { initiatorId : String
-    , command : String
-    }
+import Slate.Common.Event exposing (Metadata)
+import Services.Common.Taggers exposing (..)
 
 
 {-|
@@ -85,22 +78,8 @@ type alias PGConnectionConfig =
 {-|
     parent msg taggers
 -}
-
-
-
-{- TODO grab the next 2 taggers from services-common-proto -}
-
-
 type alias CommandHelperTagger msg =
     Msg -> msg
-
-
-type alias ErrorTagger msg =
-    ( ErrorType, ( CommandId, String ) ) -> msg
-
-
-type alias LogTagger msg =
-    ( LogLevel, ( CommandId, String ) ) -> msg
 
 
 {-|
@@ -187,8 +166,8 @@ type alias Config msg =
     { pgConnectionConfig : PGConnectionConfig
     , lockRetries : Int
     , commandHelperTagger : CommandHelperTagger msg
-    , errorTagger : ErrorTagger msg
-    , logTagger : LogTagger msg
+    , errorTagger : ErrorTagger String msg
+    , logTagger : LogTagger String msg
     , initCommandTagger : InitCommandTagger msg
     , initCommandErrorTagger : InitCommandErrorTagger msg
     , lockEntitiesTagger : LockEntitiesTagger msg
@@ -226,7 +205,6 @@ retryConfig =
 -}
 type Msg
     = Nop
-      -- | DoCmd (Cmd Msg)
     | PGConnect CommandId ConnectionId
     | PGConnectError CommandId ( ConnectionId, String )
     | PGConnectionLost CommandId ( ConnectionId, String )
@@ -293,22 +271,6 @@ insertEventsResponseDecoder =
         <|| ("insert_events" := int)
 
 
-
--- delayUpdateMsg : Msg -> Time -> Cmd Msg
--- delayUpdateMsg msg delay =
---     Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
---
---
--- delayCmd : Cmd Msg -> Time -> Cmd Msg
--- delayCmd cmd =
---     delayUpdateMsg <| DoCmd cmd
-
-
-logMsgCommon : Config msg -> CommandId -> String -> msg
-logMsgCommon config commandId message =
-    config.logTagger ( LogLevelInfo, ( commandId, message ) )
-
-
 {-|
     update
 -}
@@ -316,13 +278,13 @@ update : Config msg -> Msg -> Model -> ( ( Model, Cmd Msg ), List msg )
 update config msg model =
     let
         logMsg commandId message =
-            config.logTagger ( LogLevelInfo, ( commandId, message ) )
+            config.logTagger ( LogLevelInfo, toString ( commandId, message ) )
 
         nonFatal commandId error =
-            config.errorTagger ( NonFatalError, ( commandId, error ) )
+            config.errorTagger ( NonFatalError, toString ( commandId, error ) )
 
         fatal commandId error =
-            config.errorTagger ( FatalError, ( commandId, error ) )
+            config.errorTagger ( FatalError, toString ( commandId, error ) )
 
         updateLocker =
             ParentChildUpdate.updateChildParent (Locker.update <| lockerConfig config) (update config) .lockerModel LockerModule (\model lockerModel -> { model | lockerModel = lockerModel })
@@ -334,8 +296,6 @@ update config msg model =
             Nop ->
                 ( model ! [], [] )
 
-            -- DoCmd cmd ->
-            --     ( model ! [ cmd ], [] )
             PGConnect commandId connectionId ->
                 let
                     commandIds =
@@ -348,16 +308,6 @@ update config msg model =
                     )
 
             PGConnectError commandId ( _, error ) ->
-                -- let
-                --     ( cmd, appMsgs ) =
-                --         (retryCount <= config.pgConnectionConfig.retries)
-                --             ? ( ( Retry.retry RetryModule (PGConnectionError commandId) RetryCmd (connectCmd config commandId)
-                --                   -- ? ( ( delayCmd (connectCmd config commandId (retryCount + 1)) config.pgConnectionConfig.reconnectDelayInterval
-                --                 , [ nonFatal commandId ("initCommand Error:" +-+ "Connection Error:" +-+ error +-+ "Connection Retry:" +-+ retryCount) ]
-                --                 )
-                --               , ( Cmd.none, [ config.initCommandErrorTagger ( commandId, error ) ] )
-                --               )
-                -- in
                 ( model ! [], [ config.initCommandErrorTagger ( commandId, error ) ] )
 
             PGConnectionLost commandId ( connectionId, error ) ->
