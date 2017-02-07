@@ -444,11 +444,11 @@ update config msg model =
                 updateRetry msg model
 
 
+
+-- API
+
+
 {-|
-
-    API
-
-
     initCommand
 -}
 initCommand : Config msg -> DbConnectionInfo -> Model -> Result String ( Model, Cmd msg )
