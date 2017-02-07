@@ -20,6 +20,7 @@ module Slate.CommandHelper
 @docs Msg , Model , Config , CommandId  , init , update , initCommand , lockEntities , writeEvents , commit , rollback , createMetadata
 -}
 
+import Time exposing (Time)
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
 import String exposing (join)
@@ -141,7 +142,9 @@ type alias ConnectionLostTagger msg =
     CommandHelper Config.
 -}
 type alias Config msg =
-    { lockRetries : Int
+    { retryMax : Maybe Int
+    , delayNext : Maybe (Int -> Time)
+    , lockRetries : Maybe Int
     , routeToMeTagger : RouteToMeTagger msg
     , errorTagger : ErrorTagger String msg
     , logTagger : LogTagger String msg
@@ -161,7 +164,7 @@ type alias Config msg =
 
 lockerConfig : Config msg -> Locker.Config Msg
 lockerConfig config =
-    { retries = config.lockRetries
+    { retries = config.lockRetries ?= 3
     , lockerTagger = LockerModule
     , errorTagger = LockerError
     , logTagger = LockerLog
@@ -170,10 +173,10 @@ lockerConfig config =
     }
 
 
-retryConfig : Retry.Config Msg
-retryConfig =
-    { retryMax = 3
-    , delayNext = Retry.constantDelay 5000
+retryConfig : Config msg -> Retry.Config Msg
+retryConfig config =
+    { retryMax = config.retryMax ?= 3
+    , delayNext = config.delayNext ?= Retry.constantDelay 5000
     , routeToMeTagger = RetryModule
     }
 
@@ -267,8 +270,11 @@ update config msg model =
         updateLocker =
             ParentChildUpdate.updateChildParent (Locker.update <| lockerConfig config) (update config) .lockerModel LockerModule (\model lockerModel -> { model | lockerModel = lockerModel })
 
+        retryCfg =
+            retryConfig config
+
         updateRetry =
-            ParentChildUpdate.updateChildParent (Retry.update retryConfig) (update config) .retryModel retryConfig.routeToMeTagger (\model retryModel -> { model | retryModel = retryModel })
+            ParentChildUpdate.updateChildParent (Retry.update retryCfg) (update config) .retryModel retryCfg.routeToMeTagger (\model retryModel -> { model | retryModel = retryModel })
     in
         case msg of
             Nop ->
@@ -451,16 +457,19 @@ update config msg model =
 {-|
     initCommand
 -}
-initCommand : Config msg -> DbConnectionInfo -> Model -> Result String ( Model, Cmd msg )
+initCommand : Config msg -> DbConnectionInfo -> Model -> ( Model, Cmd msg, Int )
 initCommand config dbConnectionInfo model =
     let
+        commandId =
+            model.nextCommandId
+
         ( retryModel, retryCmd ) =
-            Retry.retry retryConfig model.retryModel (PGConnectError model.nextCommandId) RetryConnectCmd (connectCmd dbConnectionInfo model.nextCommandId)
+            Retry.retry (retryConfig config) model.retryModel (PGConnectError commandId) RetryConnectCmd (connectCmd dbConnectionInfo commandId)
     in
-        Ok
-            ( { model | retryModel = retryModel, nextCommandId = model.nextCommandId + 1 }
-            , Cmd.map config.routeToMeTagger <| retryCmd
-            )
+        ( { model | retryModel = retryModel, nextCommandId = model.nextCommandId + 1 }
+        , Cmd.map config.routeToMeTagger <| retryCmd
+        , commandId
+        )
 
 
 {-|

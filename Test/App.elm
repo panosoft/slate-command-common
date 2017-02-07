@@ -66,7 +66,9 @@ dbConnectionInfo =
 
 commandHelperConfig : CommandHelper.Config Msg
 commandHelperConfig =
-    { lockRetries = 3
+    { retryMax = Nothing
+    , delayNext = Nothing
+    , lockRetries = Nothing
     , routeToMeTagger = CommandHelperModule
     , errorTagger = CommandHelperError
     , logTagger = CommandHelperLog
@@ -168,15 +170,8 @@ update msg model =
                     l =
                         Debug.log "InitCommandStart" "Calling CommandHelper.initCommand"
 
-                    ( commandHelperModel, cmd ) =
+                    ( commandHelperModel, cmd, commandId ) =
                         CommandHelper.initCommand commandHelperConfig dbConnectionInfo model.commandHelperModel
-                            ??= (\err ->
-                                    let
-                                        l =
-                                            Debug.log ("CommandHelper.initCommand call returned Error:" +-+ err)
-                                    in
-                                        ( model.commandHelperModel, Cmd.none )
-                                )
                 in
                     { model | commandHelperModel = commandHelperModel } ! [ cmd ]
 
