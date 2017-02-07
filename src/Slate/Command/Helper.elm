@@ -1,9 +1,8 @@
-module Slate.CommandHelper
+module Slate.Command.Helper
     exposing
         ( Msg
         , Model
         , Config
-        , CommandId
         , init
         , update
         , initCommand
@@ -11,13 +10,12 @@ module Slate.CommandHelper
         , writeEvents
         , commit
         , rollback
-        , createMetadata
         )
 
 {-|
     Helper functions for writing Slate Entity APIs.
 
-@docs Msg , Model , Config , CommandId  , init , update , initCommand , lockEntities , writeEvents , commit , rollback , createMetadata
+@docs Msg , Model , Config   , init , update , initCommand , lockEntities , writeEvents , commit , rollback
 -}
 
 import Time exposing (Time)
@@ -25,7 +23,8 @@ import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
 import String exposing (join)
 import StringUtils exposing ((+-+), (+++))
-import Slate.Locker as Locker exposing (..)
+import Slate.Command.Locker as Locker exposing (..)
+import Slate.Command.Common.Command exposing (..)
 import Postgres exposing (..)
 import ParentChildUpdate exposing (..)
 import Utils.Json exposing ((<||))
@@ -33,16 +32,8 @@ import Utils.Ops exposing (..)
 import Utils.Error exposing (..)
 import Utils.Log exposing (..)
 import Retry exposing (..)
-import Slate.Common.Event exposing (Metadata)
 import Slate.Common.Db exposing (..)
 import Services.Common.Taggers exposing (..)
-
-
-{-|
-    CommandId type.
--}
-type alias CommandId =
-    Int
 
 
 type alias CommandIdDict =
@@ -121,14 +112,14 @@ type alias CommitErrorTagger msg =
     Tagger for parent indicating rollback succeeded.
 -}
 type alias RollbackTagger msg =
-    CommandId -> msg
+    String -> CommandId -> msg
 
 
 {-|
     Tagger for parent indicating rollback had error.
 -}
 type alias RollbackErrorTagger msg =
-    ( CommandId, String ) -> msg
+    String -> ( CommandId, String ) -> msg
 
 
 {-|
@@ -146,8 +137,8 @@ type alias Config msg =
     , delayNext : Maybe (Int -> Time)
     , lockRetries : Maybe Int
     , routeToMeTagger : RouteToMeTagger msg
-    , errorTagger : ErrorTagger String msg
-    , logTagger : LogTagger String msg
+    , errorTagger : ErrorTagger ( CommandId, String ) msg
+    , logTagger : LogTagger ( CommandId, String ) msg
     , initCommandTagger : InitCommandTagger msg
     , initCommandErrorTagger : InitCommandErrorTagger msg
     , lockEntitiesTagger : LockEntitiesTagger msg
@@ -197,8 +188,8 @@ type Msg
     | BeginError CommandId String ( ConnectionId, String )
     | Commit CommandId ( ConnectionId, List String )
     | CommitError CommandId ( ConnectionId, String )
-    | Rollback CommandId ( ConnectionId, List String )
-    | RollbackError CommandId ( ConnectionId, String )
+    | Rollback String CommandId ( ConnectionId, List String )
+    | RollbackError String CommandId ( ConnectionId, String )
     | WriteEvents CommandId String ( ConnectionId, List String )
     | WriteEventsError CommandId String ( ConnectionId, String )
     | LockerError ( ErrorType, ( CommandId, String ) )
@@ -237,13 +228,13 @@ initModel =
 {-|
     initialize command helper
 -}
-init : (Msg -> msg) -> ( Model, Cmd msg )
-init tagger =
+init : Config msg -> ( Model, Cmd msg )
+init config =
     let
         ( model, cmds ) =
             initModel
     in
-        model ! (List.map (Cmd.map tagger) cmds)
+        model ! (List.map (Cmd.map config.routeToMeTagger) cmds)
 
 
 insertEventsResponseDecoder : JD.Decoder InsertEventsResponse
@@ -259,13 +250,13 @@ update : Config msg -> Msg -> Model -> ( ( Model, Cmd Msg ), List msg )
 update config msg model =
     let
         logMsg commandId message =
-            config.logTagger ( LogLevelInfo, toString ( commandId, message ) )
+            config.logTagger ( LogLevelInfo, ( commandId, message ) )
 
         nonFatal commandId error =
-            config.errorTagger ( NonFatalError, toString ( commandId, error ) )
+            config.errorTagger ( NonFatalError, ( commandId, error ) )
 
         fatal commandId error =
-            config.errorTagger ( FatalError, toString ( commandId, error ) )
+            config.errorTagger ( FatalError, ( commandId, error ) )
 
         updateLocker =
             ParentChildUpdate.updateChildParent (Locker.update <| lockerConfig config) (update config) .lockerModel LockerModule (\model lockerModel -> { model | lockerModel = lockerModel })
@@ -364,14 +355,14 @@ update config msg model =
                 in
                     ( model ! [], [ errMsg, config.commitErrorTagger ( commandId, error ) ] )
 
-            Rollback commandId ( connectionId, results ) ->
+            Rollback originalError commandId ( connectionId, results ) ->
                 let
                     cmd =
                         Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId False
                 in
-                    ( model ! [ cmd ], [ config.rollbackTagger commandId ] )
+                    ( model ! [ cmd ], [ config.rollbackTagger originalError commandId ] )
 
-            RollbackError commandId ( connectionId, error ) ->
+            RollbackError originalError commandId ( connectionId, error ) ->
                 let
                     cmd =
                         Postgres.disconnect (PGDisconnectError commandId) (PGDisconnect commandId) connectionId True
@@ -379,7 +370,7 @@ update config msg model =
                     errMsg =
                         nonFatal commandId ("RollbackError:" +-+ "Connection Id:" +-+ connectionId +-+ "Error:" +-+ error)
                 in
-                    ( model ! [], [ errMsg, config.rollbackErrorTagger ( commandId, error ) ] )
+                    ( model ! [], [ errMsg, config.rollbackErrorTagger originalError ( commandId, error ) ] )
 
             WriteEvents commandId statement ( connectionId, results ) ->
                 let
@@ -522,19 +513,11 @@ commit config model commandId =
 {-|
     rollback
 -}
-rollback : Config msg -> Model -> CommandId -> Result String ( Model, Cmd msg )
-rollback config model commandId =
+rollback : Config msg -> Model -> CommandId -> String -> Result String ( Model, Cmd msg )
+rollback config model commandId originalError =
     Dict.get commandId model.commandIds
-        |?> (\connectionId -> Ok ( model, (Cmd.map config.routeToMeTagger <| Postgres.query (RollbackError commandId) (Rollback commandId) connectionId "ROLLBACK" 1) ))
+        |?> (\connectionId -> Ok ( model, (Cmd.map config.routeToMeTagger <| Postgres.query (RollbackError originalError commandId) (Rollback originalError commandId) connectionId "ROLLBACK" 1) ))
         ?= badCommandId commandId
-
-
-{-|
-    createMetadata
--}
-createMetadata : String -> String -> Metadata
-createMetadata command initiatorId =
-    { command = command, initiatorId = initiatorId }
 
 
 {-|

@@ -7,13 +7,13 @@ import Process
 import Task exposing (Task)
 import Json.Encode as JE
 import StringUtils exposing ((+-+), (+++))
-import Slate.CommandHelper as CommandHelper
+import Slate.Command.Helper as CommandHelper
+import Slate.Command.Common.Command exposing (..)
 import ParentChildUpdate exposing (..)
 import Utils.Ops exposing (..)
 import Utils.Error exposing (..)
 import Utils.Log exposing (..)
 import Slate.Common.Db exposing (..)
-import Slate.Common.Event exposing (Metadata)
 import DebugF exposing (..)
 
 
@@ -36,20 +36,20 @@ entityId2 =
 type Msg
     = Nop
     | DoCmd (Cmd Msg)
-    | CommandHelperError ( ErrorType, String )
-    | CommandHelperLog ( LogLevel, String )
+    | CommandHelperError ( ErrorType, ( CommandId, String ) )
+    | CommandHelperLog ( LogLevel, ( CommandId, String ) )
     | InitCommandStart
-    | InitCommand CommandHelper.CommandId
-    | InitCommandError ( CommandHelper.CommandId, String )
-    | LockEntities CommandHelper.CommandId
-    | LockEntitiesError ( CommandHelper.CommandId, String )
-    | WriteEvents ( CommandHelper.CommandId, Int )
-    | WriteEventsError ( CommandHelper.CommandId, String )
-    | Commit CommandHelper.CommandId
-    | CommitError ( CommandHelper.CommandId, String )
-    | Rollback CommandHelper.CommandId
-    | RollbackError ( CommandHelper.CommandId, String )
-    | ConnectionLost ( CommandHelper.CommandId, String )
+    | InitCommand CommandId
+    | InitCommandError ( CommandId, String )
+    | LockEntities CommandId
+    | LockEntitiesError ( CommandId, String )
+    | WriteEvents ( CommandId, Int )
+    | WriteEventsError ( CommandId, String )
+    | Commit CommandId
+    | CommitError ( CommandId, String )
+    | Rollback String CommandId
+    | RollbackError String ( CommandId, String )
+    | ConnectionLost ( CommandId, String )
     | CommandHelperModule CommandHelper.Msg
 
 
@@ -95,7 +95,7 @@ initModel : ( Model, List (Cmd Msg) )
 initModel =
     let
         ( commandHelperModel, commandHelperCmd ) =
-            CommandHelper.init CommandHelperModule
+            CommandHelper.init commandHelperConfig
     in
         ( { commandHelperModel = commandHelperModel
           }
@@ -135,7 +135,6 @@ main =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     let
-        updateCommandHelper : CommandHelper.Msg -> Model -> ( Model, Cmd Msg )
         updateCommandHelper =
             ParentChildUpdate.updateChildApp (CommandHelper.update commandHelperConfig) update .commandHelperModel CommandHelperModule (\model commandHelperModel -> { model | commandHelperModel = commandHelperModel })
     in
@@ -201,8 +200,8 @@ update msg model =
                         Debug.log "LockEntities Complete" ("Command Id:  " +-+ commandId)
 
                     events =
-                        [ encodeEvent "User Created" entityId1 <| CommandHelper.createMetadata "Create User" "64194fcb-bf87-40c2-bee7-3a86f0110840"
-                        , encodeEvent "User Created" entityId2 <| CommandHelper.createMetadata "Create User" "d2a1cf24-dc3a-45d6-8310-1fb6eb184d1b"
+                        [ encodeEvent "User Created" entityId1 "Create User" "64194fcb-bf87-40c2-bee7-3a86f0110840"
+                        , encodeEvent "User Created" entityId2 "Create User" "d2a1cf24-dc3a-45d6-8310-1fb6eb184d1b"
                         ]
 
                     ( commandHelperModel, cmd ) =
@@ -219,7 +218,7 @@ update msg model =
                         Debug.log "LockEntities Complete with Error" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId
+                        CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId error
                             ??= (\err ->
                                     Debug.crash ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
                                 )
@@ -245,7 +244,7 @@ update msg model =
                         Debug.log "WriteEvents Complete with Error" ("Command Id:" +-+ commandId +-+ "Error:" +-+ error)
 
                     ( commandHelperModel, cmd ) =
-                        CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId
+                        CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId error
                             ??= (\err ->
                                     Debug.crash ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
                                 )
@@ -263,20 +262,26 @@ update msg model =
                 let
                     l =
                         Debug.log "Commit Complete with Error" ("Command Id:" +-+ commandId +-+ "Error:" +-+ error)
+
+                    ( commandHelperModel, cmd ) =
+                        CommandHelper.rollback commandHelperConfig model.commandHelperModel commandId error
+                            ??= (\err ->
+                                    Debug.crash ("CommandHelper.rollback call returned Error:" +-+ err +-+ "CommandId:" +-+ commandId)
+                                )
+                in
+                    { model | commandHelperModel = commandHelperModel } ! [ cmd ]
+
+            Rollback originalError commandId ->
+                let
+                    l =
+                        Debug.log "Rollback Complete" ("Command Id:  " +-+ commandId +-+ "OriginalError:" +-+ originalError)
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 
-            Rollback commandId ->
+            RollbackError originalError ( commandId, error ) ->
                 let
                     l =
-                        Debug.log "Rollback Complete" ("Command Id:  " +-+ commandId)
-                in
-                    ( model, delayCmd (exitApp 1) (1 * second) )
-
-            RollbackError ( commandId, error ) ->
-                let
-                    l =
-                        Debug.log "Rollback Complete with Error" ("Command Id:  " +-+ commandId +-+ "Error:" +-+ error)
+                        Debug.log "Rollback Complete with Error" ("Command Id:  " +-+ commandId +-+ "OriginalError:" +-+ originalError +-+ "Error:" +-+ error)
                 in
                     ( model, delayCmd (exitApp 1) (1 * second) )
 
@@ -296,16 +301,11 @@ subscriptions model =
     Sub.none
 
 
-encodeMetadata : Metadata -> JE.Value
-encodeMetadata metadata =
-    JE.object [ ( "command", JE.string metadata.command ), ( "initiatorId", JE.string metadata.initiatorId ) ]
-
-
-encodeEvent : String -> String -> Metadata -> String
-encodeEvent name entityId metadata =
+encodeEvent : String -> String -> String -> String -> String
+encodeEvent name entityId command initiatorId =
     JE.encode 0 <|
         JE.object
             [ ( "name", JE.string name )
             , ( "data", JE.object [ ( "entityId", JE.string entityId ) ] )
-            , ( "metadata", encodeMetadata metadata )
+            , ( "metadata", JE.object [ ( "command", JE.string command ), ( "initiatorId", JE.string initiatorId ) ] )
             ]

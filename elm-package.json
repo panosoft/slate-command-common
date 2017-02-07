@@ -7,7 +7,9 @@
         "src"
     ],
     "exposed-modules": [
-        "Slate.CommandHelper"
+        "Slate.Command.Common.Command",
+        "Slate.Command.Common.Validator",
+        "Slate.Command.Processor"
     ],
     "dependencies": {
         "elm-lang/core": "4.0.5 <= v < 5.0.0",
