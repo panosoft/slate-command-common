@@ -1,4 +1,4 @@
-module Slate.CommandProcessor
+module Slate.Command.Processor
     exposing
         ( Msg
         , Model
