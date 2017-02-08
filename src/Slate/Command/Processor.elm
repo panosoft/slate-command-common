@@ -3,13 +3,17 @@ module Slate.Command.Processor
         ( Msg
         , Model
         , Config
+        , CommandErrorTagger
+        , CommandSuccessTagger
+        , init
+        , update
         , process
         )
 
 {-|
     Command Processor for Entities.
 
-@docs Msg , Model , Config, process
+@docs Msg , Model , Config, CommandErrorTagger, CommandSuccessTagger, init, update, process
 -}
 
 import Dict as Dict exposing (Dict)
@@ -34,10 +38,16 @@ type alias RouteToMeTagger msg =
     Msg -> msg
 
 
+{-|
+    Tagger for command errors.
+-}
 type alias CommandErrorTagger msg =
     ( CommandId, String ) -> msg
 
 
+{-|
+    Tagger for command success.
+-}
 type alias CommandSuccessTagger msg =
     CommandId -> msg
 
@@ -97,16 +107,29 @@ commandHelperConfig =
     }
 
 
-initModel : ( Model msg, Cmd Msg )
+initModel : ( Model msg, List (Cmd Msg) )
 initModel =
     let
         ( commandHelperModel, commandHelperCmds ) =
             CommandHelper.init commandHelperConfig
     in
-        { commandHelperModel = commandHelperModel
-        , commandStates = Dict.empty
-        }
-            ! [ commandHelperCmds ]
+        ( { commandHelperModel = commandHelperModel
+          , commandStates = Dict.empty
+          }
+        , [ commandHelperCmds ]
+        )
+
+
+{-|
+    initialize command helper
+-}
+init : Config msg -> ( Model msg, Cmd msg )
+init config =
+    let
+        ( model, cmds ) =
+            initModel
+    in
+        model ! (List.map (Cmd.map config.routeToMeTagger) cmds)
 
 
 {-|
@@ -132,6 +155,9 @@ type Msg
     | CommandHelperModule CommandHelper.Msg
 
 
+{-|
+    Update.
+-}
 update : Config msg -> Msg -> Model msg -> ( ( Model msg, Cmd Msg ), List msg )
 update config msg model =
     let
@@ -280,6 +306,9 @@ update config msg model =
 -- API
 
 
+{-|
+    Process command.
+-}
 process : Config msg -> DbConnectionInfo -> Model msg -> Maybe (ValidateTagger Msg msg) -> List String -> List String -> ( Model msg, Cmd msg, CommandId )
 process config dbConnectionInfo model maybeValidateTagger lockEntityIds events =
     let

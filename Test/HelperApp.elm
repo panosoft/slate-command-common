@@ -1,4 +1,4 @@
-port module Test.App exposing (..)
+port module Test.HelperApp exposing (..)
 
 import Html exposing (..)
 import Html.App
@@ -55,11 +55,11 @@ type Msg
 
 dbConnectionInfo : DbConnectionInfo
 dbConnectionInfo =
-    { host = "localPGDbServer"
+    { host = "postgresDBServer"
     , port_ = 5432
     , database = "test_entities"
-    , user = "parallels"
-    , password = "parallelspw"
+    , user = "charles"
+    , password = "testpassword"
     , timeout = 5000
     }
 
