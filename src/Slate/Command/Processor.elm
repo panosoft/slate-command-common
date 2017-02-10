@@ -309,8 +309,8 @@ update config msg model =
 {-|
     Process command.
 -}
-process : Config msg -> DbConnectionInfo -> Model msg -> Maybe (ValidateTagger Msg msg) -> List String -> List String -> ( Model msg, Cmd msg, CommandId )
-process config dbConnectionInfo model maybeValidateTagger lockEntityIds events =
+process : Config msg -> DbConnectionInfo -> Maybe (ValidateTagger Msg msg) -> List String -> List String -> Model msg -> ( Model msg, Cmd msg, CommandId )
+process config dbConnectionInfo maybeValidateTagger lockEntityIds events model =
     let
         ( commandHelperModel, cmd, commandId ) =
             CommandHelper.initCommand commandHelperConfig dbConnectionInfo model.commandHelperModel

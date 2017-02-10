@@ -123,7 +123,7 @@ update msg model =
                         ]
 
                     ( commandProcessorModel, cmd, commandId ) =
-                        CommandProcessor.process commandProcessorConfig dbConnectionInfo model.commandProcessorModel Nothing lockEntityIds events
+                        CommandProcessor.process commandProcessorConfig dbConnectionInfo Nothing lockEntityIds events model.commandProcessorModel
                 in
                     { model | commandProcessorModel = commandProcessorModel } ! [ cmd ]
 
