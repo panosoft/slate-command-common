@@ -18,6 +18,7 @@ module Slate.Command.Helper
 @docs Msg , Model , Config   , init , update , initCommand , lockEntities , writeEvents , commit , rollback
 -}
 
+import Set
 import Time exposing (Time)
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (..)
@@ -471,9 +472,9 @@ lockEntities config model commandId entityIds =
     let
         lock connectionId =
             let
-                -- Sort entities to fail earlier
+                -- Sort entities to fail earlier and remove dups
                 ( lockerModel, cmd ) =
-                    Locker.lock (lockerConfig config) model.lockerModel commandId connectionId (List.sort entityIds)
+                    Locker.lock (lockerConfig config) model.lockerModel commandId connectionId ((Set.toList << Set.fromList) entityIds)
             in
                 ( { model | lockerModel = lockerModel }, Cmd.map config.routeToMeTagger cmd )
     in

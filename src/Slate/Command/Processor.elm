@@ -18,6 +18,7 @@ module Slate.Command.Processor
 
 import Dict as Dict exposing (Dict)
 import DebugF
+import Maybe.Extra as MaybeE exposing (isNothing)
 import StringUtils exposing ((+-+), (+++))
 import Slate.Command.Helper as CommandHelper
 import Slate.Command.Common.Validator exposing (..)
@@ -174,7 +175,7 @@ update config msg model =
             Dict.get commandId model.commandStates
                 ?!= (\_ -> Debug.crash "BUG -- Command Id not in dictionary")
 
-        lockEntityIds commandId =
+        getLockEntityIds commandId =
             .lockEntityIds <| getCommandState commandId
 
         events commandId =
@@ -225,7 +226,7 @@ update config msg model =
                     l =
                         Debug.log "InitCommand Complete" ("Command Id:  " +-+ commandId)
                 in
-                    CommandHelper.lockEntities commandHelperConfig model.commandHelperModel commandId (lockEntityIds commandId)
+                    CommandHelper.lockEntities commandHelperConfig model.commandHelperModel commandId (getLockEntityIds commandId)
                         |> helperResults model commandId
 
             InitCommandError ( commandId, error ) ->
@@ -236,14 +237,45 @@ update config msg model =
                     l =
                         Debug.log "LockEntities Complete" ("Command Id:  " +-+ commandId)
 
+                    crashInfo =
+                        "(CommandId:" +-+ commandId +-+ ", CommandState:" +-+ commandState +-+ ")"
+
+                    checkLocks =
+                        let
+                            lockEntityIds =
+                                getLockEntityIds commandId
+
+                            validationExists =
+                                (not << isNothing) commandState.maybeValidateTagger
+
+                            locksExist =
+                                lockEntityIds /= []
+
+                            locksWithValidationOnly =
+                                case validationExists of
+                                    True ->
+                                        (not locksExist) ?! ( \_ -> Debug.crash <| "Validation cannot be performed without any entityId locks" +-+ crashInfo, identity )
+
+                                    False ->
+                                        (locksExist) ?! ( \_ -> Debug.crash <| "EntityId locks cannot exist without validation" +-+ crashInfo, identity )
+
+                            noEmptyLockIds =
+                                (List.member "" lockEntityIds) ?! ( \_ -> Debug.crash <| "EntityId locks cannot be an empty string" +-+ crashInfo, identity )
+                        in
+                            ()
+
                     commandState =
                         getCommandState commandId
                 in
                     commandState.maybeValidateTagger
                         |?> (\validateTagger ->
-                                ( model ! []
-                                , [ validateTagger ValidationError ValidationSuccess commandId commandState.dbConnectionInfo ]
-                                )
+                                let
+                                    doCheck =
+                                        checkLocks
+                                in
+                                    ( model ! []
+                                    , [ validateTagger ValidationError ValidationSuccess commandId commandState.dbConnectionInfo ]
+                                    )
                             )
                         ?= update config (ValidationSuccess commandId) model
 
@@ -309,7 +341,7 @@ update config msg model =
 {-|
     Process command.
 -}
-process : Config msg -> DbConnectionInfo -> Maybe (ValidateTagger Msg msg) -> List String -> List String -> Model msg -> ( Model msg, Cmd msg, CommandId )
+process : Config msg -> DbConnectionInfo -> Maybe (ValidateTagger Msg msg) -> List String -> List EntityReference -> Model msg -> ( Model msg, Cmd msg, CommandId )
 process config dbConnectionInfo maybeValidateTagger lockEntityIds events model =
     let
         ( commandHelperModel, cmd, commandId ) =

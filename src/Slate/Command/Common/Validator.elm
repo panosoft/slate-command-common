@@ -12,7 +12,6 @@ module Slate.Command.Common.Validator
 -}
 
 import Slate.Command.Common.Command exposing (..)
-import Slate.Common.Event exposing (..)
 import Slate.Common.Db exposing (..)
 
 
