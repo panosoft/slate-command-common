@@ -32,36 +32,25 @@ import Slate.Common.Db exposing (..)
 import Services.Common.Taggers exposing (..)
 
 
-{-|
-    parent msg taggers
--}
-type alias RouteToMeTagger msg =
-    Msg -> msg
-
-
-{-|
-    Tagger for command errors.
--}
-type alias CommandErrorTagger msg =
-    ( CommandId, String ) -> msg
-
-
-{-|
-    Tagger for command success.
--}
-type alias CommandSuccessTagger msg =
-    CommandId -> msg
-
-
-{-|
-    Command Processor's Config
--}
-type alias Config msg =
-    { routeToMeTagger : RouteToMeTagger msg
-    , errorTagger : ErrorTagger ( CommandId, String ) msg
-    , logTagger : LogTagger ( CommandId, String ) msg
-    , commandErrorTagger : CommandErrorTagger msg
-    , commandSuccessTagger : CommandSuccessTagger msg
+commandHelperConfig : CommandHelper.Config Msg
+commandHelperConfig =
+    { retryMax = Nothing
+    , delayNext = Nothing
+    , lockRetries = Nothing
+    , routeToMeTagger = CommandHelperModule
+    , errorTagger = CommandHelperError
+    , logTagger = CommandHelperLog
+    , initCommandTagger = InitCommandSuccess
+    , initCommandErrorTagger = InitCommandError
+    , lockEntitiesTagger = LockEntitiesSuccess
+    , lockEntitiesErrorTagger = LockEntitiesError
+    , writeEventsTagger = WriteEventsSuccess
+    , writeEventsErrorTagger = WriteEventsError
+    , commitTagger = CommitSuccess
+    , commitErrorTagger = CommitError
+    , rollbackTagger = RollbackSuccess
+    , rollbackErrorTagger = RollbackError
+    , connectionLostTagger = ConnectionLost
     }
 
 
@@ -86,28 +75,6 @@ type alias Model msg =
     }
 
 
-commandHelperConfig : CommandHelper.Config Msg
-commandHelperConfig =
-    { retryMax = Nothing
-    , delayNext = Nothing
-    , lockRetries = Nothing
-    , routeToMeTagger = CommandHelperModule
-    , errorTagger = CommandHelperError
-    , logTagger = CommandHelperLog
-    , initCommandTagger = InitCommandSuccess
-    , initCommandErrorTagger = InitCommandError
-    , lockEntitiesTagger = LockEntitiesSuccess
-    , lockEntitiesErrorTagger = LockEntitiesError
-    , writeEventsTagger = WriteEventsSuccess
-    , writeEventsErrorTagger = WriteEventsError
-    , commitTagger = CommitSuccess
-    , commitErrorTagger = CommitError
-    , rollbackTagger = RollbackSuccess
-    , rollbackErrorTagger = RollbackError
-    , connectionLostTagger = ConnectionLost
-    }
-
-
 initModel : ( Model msg, List (Cmd Msg) )
 initModel =
     let
@@ -119,18 +86,6 @@ initModel =
           }
         , [ commandHelperCmds ]
         )
-
-
-{-|
-    initialize command helper
--}
-init : Config msg -> ( Model msg, Cmd msg )
-init config =
-    let
-        ( model, cmds ) =
-            initModel
-    in
-        model ! (List.map (Cmd.map config.routeToMeTagger) cmds)
 
 
 {-|
@@ -336,6 +291,51 @@ update config msg model =
 
 
 -- API
+
+
+{-|
+    Parent's Tagger that will result in calling this modules update function.
+-}
+type alias RouteToMeTagger msg =
+    Msg -> msg
+
+
+{-|
+    Tagger for command errors.
+-}
+type alias CommandErrorTagger msg =
+    ( CommandId, String ) -> msg
+
+
+{-|
+    Tagger for command success.
+-}
+type alias CommandSuccessTagger msg =
+    CommandId -> msg
+
+
+{-|
+    Command Processor's Config
+-}
+type alias Config msg =
+    { routeToMeTagger : RouteToMeTagger msg
+    , errorTagger : ErrorTagger ( CommandId, String ) msg
+    , logTagger : LogTagger ( CommandId, String ) msg
+    , commandErrorTagger : CommandErrorTagger msg
+    , commandSuccessTagger : CommandSuccessTagger msg
+    }
+
+
+{-|
+    Initialize command helper
+-}
+init : Config msg -> ( Model msg, Cmd msg )
+init config =
+    let
+        ( model, cmds ) =
+            initModel
+    in
+        model ! (List.map (Cmd.map config.routeToMeTagger) cmds)
 
 
 {-|
