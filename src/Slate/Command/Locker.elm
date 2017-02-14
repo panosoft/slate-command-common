@@ -100,7 +100,7 @@ beginTrans commandId connectionId retryCount =
 lockResponseDecoder : JD.Decoder LockResponse
 lockResponseDecoder =
     JD.succeed LockResponse
-        <|| ("pg_try_advisory_xact_lock" := bool)
+        <|| (field "pg_try_advisory_xact_lock" bool)
 
 
 update : Config msg -> Msg -> Model -> ( ( Model, Cmd Msg ), List msg )

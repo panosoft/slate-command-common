@@ -241,7 +241,7 @@ init config =
 insertEventsResponseDecoder : JD.Decoder InsertEventsResponse
 insertEventsResponseDecoder =
     JD.succeed InsertEventsResponse
-        <|| ("insert_events" := int)
+        <|| (field "insert_events" int)
 
 
 {-|

@@ -1,7 +1,6 @@
 port module Test.App exposing (..)
 
-import Html exposing (..)
-import Html.App
+import Platform
 import Time exposing (Time, second)
 import Process
 import Task exposing (Task)
@@ -9,6 +8,7 @@ import ParentChildUpdate exposing (..)
 import Slate.Common.Db exposing (..)
 import Slate.Command.Common.Command exposing (..)
 import Slate.Command.Processor as CommandProcessor
+import Slate.Command.Common.Validator as Validator
 import Utils.Error exposing (..)
 import Utils.Log exposing (..)
 import StringUtils exposing ((+-+), (+++))
@@ -56,6 +56,7 @@ type Msg
     | CommandProcessorModule CommandProcessor.Msg
     | CommandError ( CommandId, String )
     | CommandSuccess CommandId
+    | DummyValidate (Validator.ValidateErrorTagger CommandProcessor.Msg) (Validator.ValidateSuccessTagger CommandProcessor.Msg) CommandId DbConnectionInfo
 
 
 initModel : ( Model, List (Cmd Msg) )
@@ -81,7 +82,7 @@ init =
 
 delayUpdateMsg : Msg -> Time -> Cmd Msg
 delayUpdateMsg msg delay =
-    Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
+    Task.perform (\_ -> msg) <| Process.sleep delay
 
 
 delayCmd : Cmd Msg -> Time -> Cmd Msg
@@ -89,11 +90,10 @@ delayCmd cmd =
     delayUpdateMsg <| DoCmd cmd
 
 
-main : Program Never
+main : Program Never Model Msg
 main =
-    Html.App.program
+    Platform.program
         { init = init
-        , view = (\_ -> text "")
         , update = update
         , subscriptions = subscriptions
         }
@@ -123,7 +123,7 @@ update msg model =
                         ]
 
                     ( commandProcessorModel, cmd, commandId ) =
-                        CommandProcessor.process commandProcessorConfig dbConnectionInfo Nothing lockEntityIds events model.commandProcessorModel
+                        CommandProcessor.process commandProcessorConfig dbConnectionInfo (Just DummyValidate) lockEntityIds events model.commandProcessorModel
                 in
                     { model | commandProcessorModel = commandProcessorModel } ! [ cmd ]
 
@@ -162,6 +162,14 @@ update msg model =
 
             CommandProcessorModule msg ->
                 updateCommandProcessor msg model
+
+            DummyValidate errorTagger successTagger commandId dbConnectionInfo ->
+                let
+                    l =
+                        Debug.log "DummyValidate" ""
+                in
+                    -- updateCommandProcessor (errorTagger (commandId, "bad things would happen")) model
+                    updateCommandProcessor (successTagger commandId) model
 
 
 subscriptions : Model -> Sub Msg

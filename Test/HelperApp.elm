@@ -1,7 +1,6 @@
 port module Test.HelperApp exposing (..)
 
-import Html exposing (..)
-import Html.App
+import Platform
 import Time exposing (Time, second)
 import Process
 import Task exposing (Task)
@@ -114,7 +113,7 @@ init =
 
 delayUpdateMsg : Msg -> Time -> Cmd Msg
 delayUpdateMsg msg delay =
-    Task.perform (\_ -> Nop) (\_ -> msg) <| Process.sleep delay
+    Task.perform (\_ -> msg) <| Process.sleep delay
 
 
 delayCmd : Cmd Msg -> Time -> Cmd Msg
@@ -122,11 +121,10 @@ delayCmd cmd =
     delayUpdateMsg <| DoCmd cmd
 
 
-main : Program Never
+main : Program Never Model Msg
 main =
-    Html.App.program
+    Platform.program
         { init = init
-        , view = (\_ -> text "")
         , update = update
         , subscriptions = subscriptions
         }
