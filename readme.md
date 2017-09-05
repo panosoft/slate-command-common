@@ -1,3 +1,6 @@
+# DEPRECATED - Please see [elm-slate/command](https://github.com/elm-slate/command)
+
+
 # Common Command Processor Modules for Slate
 
 > Provides helper functions for writing Slate Entity Command Processors.
